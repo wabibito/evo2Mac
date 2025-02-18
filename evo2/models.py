@@ -1,7 +1,7 @@
 import torch
 
 import huggingface_hub
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, constants
 import yaml
 import os
 from typing import List, Tuple, Dict, Union
@@ -185,7 +185,7 @@ class Evo2:
         except:
             print(f"Loading checkpoint shards for {filename}")
             # If file is split, get the first part's directory to use the same cache location
-            weights_path = os.path.join(os.path.dirname(os.environ['HF_HOME']), filename)
+            weights_path = os.path.join(os.path.dirname(constants.HF_HUB_CACHE), filename)
             if os.path.exists(weights_path):
                 print(f"Found {filename}")
             else:
