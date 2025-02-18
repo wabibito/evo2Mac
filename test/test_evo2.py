@@ -80,7 +80,7 @@ def main():
     - Evo 2 1B base: 68.0%
     """
     parser = argparse.ArgumentParser(description="Test Evo2 Model Generation")
-    parser.add_argument("--model_name", choices=['evo2_7b', 'evo2_40b', 'evo2_1b_base'], required=True,
+    parser.add_argument("--model_name", choices=['evo2_7b', 'evo2_40b', 'evo2_1b_base'], default='evo2_7b',
                        help="Model to test (supports evo2_7b, evo2_40b, evo2_1b_base)")
     
     args = parser.parse_args()
