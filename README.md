@@ -111,7 +111,7 @@ print('Embeddings shape: ', embeddings[layer_name].shape)
 
 ### Generation
 
-Evo 2 can generate DNA sequence based on prompts.
+Evo 2 can generate DNA sequences based on prompts.
 
 ```python
 from evo2 import Evo2
@@ -119,14 +119,15 @@ from evo2 import Evo2
 evo2_model = Evo2('evo2_7b')
 
 output = evo2_model.generate(prompt_seqs=["ACGT"], n_tokens=400, temperature=1.0, top_k=4)
+
 print(output.sequences[0])
 ```
 
 ### Notebooks
 
-We provide an example of zero-shot *BRCA1* variant effect prediction with Evo 2:
-- [brca1_zero_shot_vep.ipynb](https://github.com/ArcInstitute/evo2/blob/main/notebooks/brca1/brca1_zero_shot_vep.ipynb)
-This show how to perform reference vs alt allele normalization for variant effect prediction.
+We provide an example [notebook](https://github.com/ArcInstitute/evo2/blob/main/notebooks/brca1/brca1_zero_shot_vep.ipynb) of zero-shot *BRCA1* variant effect prediction. This example includes a walkthrough of:
+- Performing zero-shot *BRCA1* variant effect predictions using Evo 2
+- Reference vs alternative allele normalization
 
 ## Dataset
 
