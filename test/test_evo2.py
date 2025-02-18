@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from evo2 import Evo2
 
@@ -19,113 +20,97 @@ def read_prompts(input_file: Path) -> Union[List[List[str]]]:
 
     return promptseqs
 
-def mid_point_split(*, seq, num_tokens):
-    """Split sequence at midpoint for prompt and target."""
-    mid_point = 2*(len(seq)//4)
-    prompt = seq[:mid_point]
-    target = seq[mid_point:mid_point+num_tokens]
-    return prompt, target
-
-def calculate_sequence_identity(seq1: str, seq2: str) -> Optional[float]:
-    """Calculate sequence identity between two sequences through direct comparison."""
-    if not seq1 or not seq2:
-        return None
+def test_forward_pass(*, model, sequences):
+    """Test model forward pass accuracy on sequences."""
+    losses = []
+    accuracies = []
     
-    min_length = min(len(seq1), len(seq2))
-    matches = sum(a == b for a, b in zip(seq1[:min_length], seq2[:min_length]))
-    return (matches / min_length) * 100
-
-def generate_and_score(*, sequences, model, generations_per_prompt=5, n_tokens=500,
-                      temperature=1.0, top_k=1, top_p=1.0):
-    """Prompt with first half, generate and score on 2nd half."""
-    scores = []
-    prompts = []
-    targets = []
-    
-    # Prepare all prompts and targets
     for seq in sequences:
-        prompt, target = mid_point_split(seq=seq, num_tokens=n_tokens)
-        prompts.extend([prompt] * generations_per_prompt)
-        targets.extend([target] * generations_per_prompt)
-    
-    for i in range(len(prompts)):
-        prompt = prompts[i]
-        target = targets[i]
-
+        # Convert sequence to model input format
+        input_ids = torch.tensor(model.tokenizer.tokenize(seq), dtype=int).to('cuda:0')
+        
         with torch.inference_mode():
-            generated = model.generate(
-                prompt_seqs=[prompt],
-                n_tokens=n_tokens,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
+            # Forward pass
+            logits, _ = model.model.forward(input_ids.unsqueeze(0))
+            
+            # Calculate loss and accuracy
+            target_ids = input_ids[1:]  # Shift right for next token prediction
+            pred_logits = logits[0, :-1, :]
+            
+            # Cross entropy loss
+            loss = F.cross_entropy(
+                pred_logits, 
+                target_ids.long()
             )
             
-            decoded_seq = generated.sequences[0]  # Assuming generate returns list of sequences
-            score = calculate_sequence_identity(decoded_seq, target)
-            scores.append(score)
+            # Get predictions
+            pred_tokens = torch.argmax(pred_logits, dim=-1)
+            
+            # Calculate accuracy
+            accuracy = (target_ids == pred_tokens).float().mean().item()
+            
+            losses.append(loss.item())
+            accuracies.append(accuracy)
     
-    # Reshape scores to group by original sequence
-    reshaped_scores = [scores[i:i + generations_per_prompt] 
-                      for i in range(0, len(scores), generations_per_prompt)]
+    # Print sequence results
+    print("\nSequence Results:")
+    for i, (loss, acc) in enumerate(zip(losses, accuracies)):
+        print(f"Sequence {i+1}: Loss = {loss:.3f}, Accuracy = {acc:.2%}")
+        if acc < 0.5:
+            print("WARNING: Forward pass accuracy is below 50% on test sequence. Model may be broken, trained models should have >80% accuracy.")
     
-    return reshaped_scores
+    return accuracies, losses
 
 def main():
     """
-    Test sequence generation and scoring using the evo2 models
-    Expected results (direct comparison w/o alignment):
-    - Evo 2 40B 1m: 91.15%
-    - Evo 2 7B 1m: 89.25% 
-    - Evo 2 1B base: 68.0%
+    Test sequence prediction accuracy using Evo2 models.
+    Expected results for forward pass:
+    - Evo 2 40B 1m: Loss ~0.216, Accuracy ~91.67%
+    - Evo 2 7B 1m: Loss ~0.348, Accuracy ~86.35%
+    - Evo 2 1B base: Loss ~0.502, Accuracy ~79.56%
     """
-    parser = argparse.ArgumentParser(description="Test Evo2 Model Generation")
-    parser.add_argument("--model_name", choices=['evo2_7b', 'evo2_40b', 'evo2_1b_base'], default='evo2_7b',
-                       help="Model to test (supports evo2_7b, evo2_40b, evo2_1b_base)")
+    parser = argparse.ArgumentParser(description="Test Evo2 Model Forward Pass")
+    parser.add_argument("--model_name", choices=['evo2_7b', 'evo2_40b', 'evo2_1b_base'], 
+                       default='evo2_7b',
+                       help="Model to test")
     
     args = parser.parse_args()
     
     # Set random seeds
     torch.manual_seed(1)
     torch.cuda.manual_seed(1)
-        
+    
+    # Initialize model
     model = Evo2(args.model_name)
     
-    # Test parameters: greedy sampling of 500 tokens
-    test_params = {
-        'n_tokens': 500,
-        'temperature': 1.0,
-        'top_k': 1,
-        'top_p': 1.0,
-        'generations_per_prompt': 1,
-    }
-    
-    # Read and process sequences
+    # Read sequences
     sequences = read_prompts('vortex/test/data/prompts.csv')
-    scores = generate_and_score(
-        sequences=sequences,
+    
+    # Test forward pass
+    accuracies, losses = test_forward_pass(
         model=model,
-        **test_params
+        sequences=sequences
     )
     
     # Calculate and validate results
-    mean_score = np.mean(scores)
-    print("\nTest Results:")
-    print("% Matching Nucleotides:", mean_score)
+    mean_loss = np.mean(losses)
+    mean_accuracy = np.mean(accuracies) * 100
+    print(f"\nMean Loss: {mean_loss:.3f}")
+    print(f"Mean Accuracy: {mean_accuracy:.3f}%")
     
     # Validate against expected scores
-    eps = 1e-1  # epsilon for float comparison
-    expected_scores = {
-        'evo2_40b': 91.15,
-        'evo2_7b': 89.25,
-        'evo2_1b_base': 68.0
+    eps = 1e-3  # epsilon for float comparison
+    expected_metrics = {
+        'evo2_40b': {'loss': 0.2159424, 'acc': 91.673},
+        'evo2_7b': {'loss': 0.3476563, 'acc': 86.346},
+        'evo2_1b_base': {'loss': 0.501953125, 'acc': 79.556}
     }
     
-    expected_score = expected_scores[args.model_name]
-    if abs(mean_score - expected_score) < eps:
-        print(f"\nTest Passed! Score matches expected {expected_score}%")
+    expected = expected_metrics[args.model_name]
+    if abs(mean_loss - expected['loss']) < eps:
+        print(f"\nTest Passed! Loss matches expected {expected['loss']:.3f}")
     else:
-        print(f"\nTest Failed: Expected {expected_score}%, got {mean_score}%")
+        print(f"\nTest Failed: Expected loss {expected['loss']:.3f}, got {mean_loss:.3f}")
 
 if __name__ == "__main__":
     main()
