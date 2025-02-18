@@ -124,7 +124,9 @@ print(output.sequences[0])
 
 ### Notebooks
 
-- `notebooks/brca1/brca1_zero_shot_vep.ipynb`: Zero-shot *BRCA1* variant effect prediction with Evo 2.
+We provide an example of zero-shot *BRCA1* variant effect prediction with Evo 2:
+- [brca1_zero_shot_vep.ipynb](https://github.com/ArcInstitute/evo2/blob/main/notebooks/brca1/brca1_zero_shot_vep.ipynb)
+This show how to perform reference vs alt allele normalization for variant effect prediction.
 
 ## Dataset
 
