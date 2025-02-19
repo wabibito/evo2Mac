@@ -5,7 +5,7 @@
 Evo 2 is a state of the art DNA language model for long context modeling and design. Evo 2 models DNA sequences at single-nucleotide resolution at up to 1 million base pair context length using the [StripedHyena 2](https://github.com/Zymrael/vortex) architecture. Evo 2 was pretrained using [Savanna](https://github.com/Zymrael/savanna). Evo 2 was trained autoregressively on [OpenGenome2](https://huggingface.co/datasets/arcinstitute/opengenome2), a dataset containing 8.8 trillion tokens from all domains of life.
 
 We describe Evo 2 in the preprint:
-["Genome modeling and design across all domains of life with Evo 2"]().
+["Genome modeling and design across all domains of life with Evo 2"](https://arcinstitute.org/manuscripts/Evo2).
 
 ## Contents
 
@@ -31,16 +31,18 @@ Evo 2 is based on [StripedHyena 2](https://github.com/Zymrael/vortex). A CUDA-ca
 
 ### Installation
 
-Follow the commands below to install. We recommend using a new conda environment with python 3.12.
+Please install directly from GitHub. We recommend using a new conda environment. Requires python>=3.11.
 
 ```bash
-pip install git+https://github.com/arcinstitute/evo2.git
+git clone git@github.com:ArcInstitute/evo2.git
+cd evo2
+pip install .
 ```
 
-After installation, check that the installation was correct by running a test
+You can check that the installation was correct by running a test.
 
 ```
-python -m test.test_evo2 --model_name evo2_7b
+python ./test/test_evo2.py --model_name evo2_7b
 ```
 
 ## Checkpoints

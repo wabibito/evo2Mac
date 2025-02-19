@@ -1,74 +1,60 @@
 import os
 import subprocess
-from setuptools import setup, find_packages, Command
-from setuptools.command.install import install
-from distutils.dir_util import mkpath
-
-class VortexInstallCommand(Command):
-    description = 'Install vortex submodule'
-
-    def initialize_options(self):
-        """Set default values for options"""
-        pass
-    
-    def finalize_options(self):
-        """Post-process options"""
-        pass
-    
-    def run(self):
-        vortex_dir = os.path.join(os.path.dirname(__file__), 'vortex')
-        original_dir = os.getcwd()
-        subprocess.check_call(['git', 'submodule', 'init', 'vortex'])
-        subprocess.check_call(['git', 'submodule', 'update', 'vortex'])
-        
-        try:
-            os.chdir(vortex_dir)
-            subprocess.check_call(['make', 'setup-full'])
-        finally:
-            os.chdir(original_dir)
-
-
-class CustomInstall(install):
-    def run(self):
-        # Create necessary directories
-        if self.build_lib:
-            mkpath(os.path.join(self.build_lib, 'evo2'))
-        if hasattr(self, 'build_scripts'):
-            mkpath(self.build_scripts)
-        install.run(self)
-        self.run_command('install_vortex')
-
-
-import os
-import subprocess
 import sys
-from setuptools import setup, find_packages, Command
-from setuptools.command.install import install
+from setuptools import setup, find_packages
+from setuptools.command.build import build as _build  # use the top-level build command
+from setuptools.command.develop import develop as _develop
+from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
-class VortexInstallCommand(Command):
-    description = 'Install vortex submodule'
+def update_submodules():
+    base_dir = os.path.dirname(__file__)
+    # Check if the .git folder exists
+    if os.path.exists(os.path.join(base_dir, '.git')):
+        print("Updating git submodules...")
+        # Run submodule init and update for 'vortex'
+        subprocess.check_call(['git', 'submodule', 'init', 'vortex'], cwd=base_dir)
+        subprocess.check_call(['git', 'submodule', 'update', 'vortex'], cwd=base_dir)
+    else:
+        print("No .git directory found; skipping submodule update.")
 
-    def initialize_options(self):
-        """Set default values for options"""
-        pass
+def run_make_setup_full():
+    base_dir = os.path.dirname(__file__)
+    vortex_dir = os.path.join(base_dir, 'vortex')
+    original_dir = os.getcwd()
+
+    # Ensure submodules are updated before running the Makefile
+    update_submodules()
+
+    # Ensure the Makefile uses the current Python interpreter
+    env = os.environ.copy()
+    env["PYTHON"] = sys.executable
+    print(f"Running 'make setup-full' in {vortex_dir} with PYTHON={sys.executable} ...")
     
-    def finalize_options(self):
-        """Post-process options"""
-        pass
-    
-    def run(self):
-        vortex_dir = os.path.join(os.path.dirname(__file__), 'vortex')
-        original_dir = os.getcwd()
-        try:
-            os.chdir(vortex_dir)
-            subprocess.check_call(['make', 'setup-full'])
-        finally:
-            os.chdir(original_dir)
+    try:
+        os.chdir(vortex_dir)
+        subprocess.check_call(['make', 'setup-full'], env=env)
+    finally:
+        os.chdir(original_dir)
 
-class CustomInstall(install):
+class CustomBuild(_build):
     def run(self):
-        install.run(self)
-        self.run_command('install_vortex')
+        # Run egg_info to ensure metadata is available
+        self.run_command('egg_info')
+        # Update submodules and run the Makefile before building anything else
+        run_make_setup_full()
+        # Continue with the normal build process
+        _build.run(self)
+
+class CustomDevelop(_develop):
+    def run(self):
+        update_submodules()
+        run_make_setup_full()
+        _develop.run(self)
+
+class CustomBDistWheel(_bdist_wheel):
+    def run(self):
+        self.run_command('egg_info')
+        _bdist_wheel.run(self)
 
 def parse_requirements(filename):
     requirements = []
@@ -84,19 +70,18 @@ requirements = parse_requirements("requirements.txt")
 setup(
     name='evo2',
     version='0.1.0',
-    packages=find_packages(),
+    # Only include the evo2 package; the vortex submodule is used for build purposes.
+    packages=find_packages(include=["evo2", "evo2.*"]),
     install_requires=requirements,
     cmdclass={
-        'install': CustomInstall,
-        'install_vortex': VortexInstallCommand,
-    },
-    package_data={
-        'evo2': ['vortex/*'],
+        'build': CustomBuild,
+        'develop': CustomDevelop,
+        'bdist_wheel': CustomBDistWheel,
     },
     include_package_data=True,
     python_requires='>=3.1',
     license="Apache-2.0",
     description='Evo 2 project package',
     author='Evo 2 team',
-    url='https://github.com/arcinstitute/evo2',
+    url='https://github.com/garykbrixi/evo2',
 )
