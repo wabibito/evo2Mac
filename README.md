@@ -32,6 +32,10 @@ Evo 2 is based on [StripedHyena 2](https://github.com/Zymrael/vortex) which requ
 
 You can also run Evo 2 without any installation using the [Nvidia Hosted API](https://build.nvidia.com/arc/evo2-40b).
 
+To host your own instance for running Evo 2, we recommend using NVIDIA NIM. This will allow you to self-host an
+instance with the same API as the Nvidia hosted API. See the [NVIDIA NIM](#nvidia-nim-for-evo-2) section for more 
+information.
+
 ### Installation
 
 Please clone and install from GitHub. We recommend using a new conda environment with python>=3.11.
@@ -132,6 +136,36 @@ print(output.sequences[0])
 We provide an example [notebook](https://github.com/ArcInstitute/evo2/blob/main/notebooks/brca1/brca1_zero_shot_vep.ipynb) of zero-shot *BRCA1* variant effect prediction. This example includes a walkthrough of:
 - Performing zero-shot *BRCA1* variant effect predictions using Evo 2
 - Reference vs alternative allele normalization
+
+### NVIDIA NIM for Evo 2
+
+Evo 2 is available on [NVIDIA NIM](https://catalog.ngc.nvidia.com/containers?filters=&orderBy=scoreDESC&query=evo2&page=&pageSize=).
+
+- [Documentation](https://docs.nvidia.com/nim/bionemo/evo2/latest/overview.html)
+- [Quickstart](https://docs.nvidia.com/nim/bionemo/evo2/latest/quickstart-guide.html)
+
+The quickstart guides users through running Evo 2 on the NVIDIA NIM using a python or shell client after starting NIM. An example python client script is shown below. Note this is the same way you would interact with the Nvidia hosted API.
+
+```python
+#!/usr/bin/env python3
+import requests
+import os
+import json
+from pathlib import Path
+
+r = requests.post(
+    url="http://localhost:8000/biology/arc/evo2/generate",
+    json={
+        "sequence": "ACTGACTGACTGACTG",
+        "num_tokens": 8,
+        "top_k": 1,
+        "enable_sampled_probs": True,
+    },
+)
+print(r, "Saving to output.json:\n", r.text[:200], "...")
+Path("output.json").write_text(r.text)
+```
+
 
 ### Very long sequences
 
