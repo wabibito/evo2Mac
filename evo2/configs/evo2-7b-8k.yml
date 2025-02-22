@@ -36,6 +36,7 @@ hyena_filter_groups: 1
 # Split strategy for channels
 column_split_hyena: False
 column_split: True
+interleave: True
 # Layer > 0 nn.identity activation
 evo2_style_activations: True
 # Legacy options for MP / PP inference

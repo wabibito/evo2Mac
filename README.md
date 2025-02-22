@@ -5,7 +5,7 @@
 Evo 2 is a state of the art DNA language model for long context modeling and design. Evo 2 models DNA sequences at single-nucleotide resolution at up to 1 million base pair context length using the [StripedHyena 2](https://github.com/Zymrael/savanna/blob/main/paper.pdf) architecture. Evo 2 was pretrained using [Savanna](https://github.com/Zymrael/savanna). Evo 2 was trained autoregressively on [OpenGenome2](https://huggingface.co/datasets/arcinstitute/opengenome2), a dataset containing 8.8 trillion tokens from all domains of life.
 
 We describe Evo 2 in the preprint:
-["Genome modeling and design across all domains of life with Evo 2"](https://arcinstitute.org/manuscripts/Evo2).
+["Genome modeling and design across all domains of life with Evo 2"](https://www.biorxiv.org/content/10.1101/2025.02.18.638918v1).
 
 ## Contents
 
@@ -29,11 +29,8 @@ We describe Evo 2 in the preprint:
 
 Evo 2 is based on [StripedHyena 2](https://github.com/Zymrael/vortex) which requires python>=3.11. Evo 2 uses [Transformer Engine](https://github.com/NVIDIA/TransformerEngine) FP8 for some layers which requires an H100 (or other GPU with compute capability ≥8.9). We are actively investigating ways to avoid this requirement.
 
-
-You can also run Evo 2 without any installation using the [Nvidia Hosted API](https://build.nvidia.com/arc/evo2-40b).
-
-To host your own instance for running Evo 2, we recommend using NVIDIA NIM. This will allow you to self-host an
-instance with the same API as the Nvidia hosted API. See the [NVIDIA NIM](#nvidia-nim-for-evo-2) section for more 
+You can run Evo 2 without any installation using the [Nvidia Hosted API](https://build.nvidia.com/arc/evo2-40b).
+You can also self-host an instance with the same API as the Nvidia hosted API using Nvidia NIM. See the [Nvidia NIM](#nvidia-nim-for-evo-2) section for more 
 information.
 
 ### Installation
@@ -144,7 +141,7 @@ Evo 2 is available on [NVIDIA NIM](https://catalog.ngc.nvidia.com/containers?fil
 - [Documentation](https://docs.nvidia.com/nim/bionemo/evo2/latest/overview.html)
 - [Quickstart](https://docs.nvidia.com/nim/bionemo/evo2/latest/quickstart-guide.html)
 
-The quickstart guides users through running Evo 2 on the NVIDIA NIM using a python or shell client after starting NIM. An example python client script is shown below. Note this is the same way you would interact with the Nvidia hosted API.
+The quickstart guides users through running Evo 2 on the NVIDIA NIM using a python or shell client after starting NIM. An example python client script is shown below. This is the same way you would interact with the [Nvidia hosted API](https://build.nvidia.com/arc/evo2-40b?snippet_tab=Python).
 
 ```python
 #!/usr/bin/env python3
@@ -153,8 +150,11 @@ import os
 import json
 from pathlib import Path
 
+key = os.getenv("NVCF_RUN_KEY") or input("Paste the Run Key: ")
+
 r = requests.post(
-    url="http://localhost:8000/biology/arc/evo2/generate",
+    url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/generate"),
+    headers={"Authorization": f"Bearer {key}"},
     json={
         "sequence": "ACTGACTGACTGACTG",
         "num_tokens": 8,
@@ -162,8 +162,15 @@ r = requests.post(
         "enable_sampled_probs": True,
     },
 )
-print(r, "Saving to output.json:\n", r.text[:200], "...")
-Path("output.json").write_text(r.text)
+
+if "application/json" in r.headers.get("Content-Type", ""):
+    print(r, "Saving to output.json:\n", r.text[:200], "...")
+    Path("output.json").write_text(r.text)
+elif "application/zip" in r.headers.get("Content-Type", ""):
+    print(r, "Saving large response to data.zip")
+    Path("data.zip").write_bytes(r.content)
+else:
+    print(r, r.headers, r.content)
 ```
 
 
@@ -184,11 +191,15 @@ Evo 2 was trained using [Savanna](https://github.com/Zymrael/savanna), an open s
 If you find these models useful for your research, please cite the relevant papers
 
 ```
-@article{brixi2025genome,
-  title = {Genome modeling and design across all domains of life with Evo 2},
-  author = {Brixi, Garyk and Durrant, Matthew G. and Ku, Jerome and Poli, Michael and Brockman, Greg and Chang, Daniel and Gonzalez, Gabriel A. and King, Samuel H. and Li, David B. and Merchant, Aditi T. and Naghipourfar, Mohsen and Nguyen, Eric and Ricci-Tam, Chiara and Romero, David W. and Sun, Gwanggyu and Taghibakshi, Ali and Vorontsov, Anton and Yang, Brandon and Deng, Myra and Gorton, Liv and Nguyen, Nam and Wang, Nicholas K. and Adams, Etowah and Baccus, Stephen A. and Dillmann, Steven and Ermon, Stefano and Guo, Daniel and Ilango, Rajesh and Janik, Ken and Lu, Amy X. and Mehta, Reshma and Mofrad, Mohammad R.K. and Ng, Madelena Y. and Pannu, Jaspreet and Ré, Christopher and Schmok, Jonathan C. and St. John, John and Sullivan, Jeremy and Zhu, Kevin and Zynda, Greg and Balsam, Daniel and Collison, Patrick and Costa, Anthony B. and Hernandez-Boussard, Tina and Ho, Eric and Liu, Ming-Yu and McGrath, Thomas and Powell, Kimberly and Burke, Dave P. and Goodarzi, Hani and Hsu, Patrick D. and Hie, Brian L.},
-  journal = {Arc Institute Manuscripts},
-  year = {2025},
-  url = {https://arcinstitute.org/manuscripts/Evo2}
+@article {Brixi2025.02.18.638918,
+	author = {Brixi, Garyk and Durrant, Matthew G and Ku, Jerome and Poli, Michael and Brockman, Greg and Chang, Daniel and Gonzalez, Gabriel A and King, Samuel H and Li, David B and Merchant, Aditi T and Naghipourfar, Mohsen and Nguyen, Eric and Ricci-Tam, Chiara and Romero, David W and Sun, Gwanggyu and Taghibakshi, Ali and Vorontsov, Anton and Yang, Brandon and Deng, Myra and Gorton, Liv and Nguyen, Nam and Wang, Nicholas K and Adams, Etowah and Baccus, Stephen A and Dillmann, Steven and Ermon, Stefano and Guo, Daniel and Ilango, Rajesh and Janik, Ken and Lu, Amy X and Mehta, Reshma and Mofrad, Mohammad R.K. and Ng, Madelena Y and Pannu, Jaspreet and Re, Christopher and Schmok, Jonathan C and St. John, John and Sullivan, Jeremy and Zhu, Kevin and Zynda, Greg and Balsam, Daniel and Collison, Patrick and Costa, Anthony B. and Hernandez-Boussard, Tina and Ho, Eric and Liu, Ming-Yu and McGrath, Tom and Powell, Kimberly and Burke, Dave P. and Goodarzi, Hani and Hsu, Patrick D and Hie, Brian},
+	title = {Genome modeling and design across all domains of life with Evo 2},
+	elocation-id = {2025.02.18.638918},
+	year = {2025},
+	doi = {10.1101/2025.02.18.638918},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2025/02/21/2025.02.18.638918},
+	eprint = {https://www.biorxiv.org/content/early/2025/02/21/2025.02.18.638918.full.pdf},
+	journal = {bioRxiv}
 }
 ```
