@@ -3,7 +3,7 @@ name = "evo2"
 version = "0.3.0"
 description = "Genome modeling across all domains of life"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.13"
 license = "Apache-2.0"
 authors = [
     {name = "Evo 2 Team"},

@@ -12,6 +12,7 @@ We describe Evo 2 in the preprint:
 - [Setup](#setup)
   - [Requirements](#requirements)
   - [Installation](#installation)
+  - [Docker](#docker)
 - [Checkpoints](#checkpoints)
 - [Usage](#usage)
   - [Forward](#forward)
@@ -74,6 +75,22 @@ pip install -e .
 To verify that the installation was correct:
 
 ```
+python -m evo2.test.test_evo2_generation --model_name evo2_7b
+```
+
+### Docker
+
+Evo 2 can be run using Docker (shown below), Singularity, or Apptainer.
+
+```bash
+docker build -t evo2 .
+docker run -it --rm --gpus '"device=0"' -v ./huggingface:/root/.cache/huggingface evo2 bash
+```
+Note: The volume mount (-v) preserves downloaded models between container runs and specifies where they are saved.
+
+Once inside the container:
+
+```bash
 python -m evo2.test.test_evo2_generation --model_name evo2_7b
 ```
 
