@@ -5,7 +5,14 @@ import os
 import pkgutil
 import torch
 from typing import List, Tuple, Dict, Union
+import warnings
 import yaml
+
+try:
+    import transformer_engine
+    HAS_TE = True
+except ImportError:
+    HAS_TE = False
 
 
 from vortex.model.generation import generate as vortex_generate
@@ -187,6 +194,23 @@ class Evo2:
             print(f"Loading config from {config_path}...")
             config = yaml.safe_load(pkgutil.get_data(__name__, config_path))
             config = dotdict(config)
+
+            if config.get("use_fp8_input_projections", False) and not HAS_TE:
+                is_7b_model = "7b" in (model_name or "") or "7b" in (config_path or "")
+                if is_7b_model:
+                    warnings.warn(
+                        "Transformer Engine not installed. "
+                        "Falling back to bf16 projections (use_fp8_input_projections=False). "
+                    )
+                    config.use_fp8_input_projections = False
+                else:
+                    raise ImportError(
+                        f"Model '{model_name or config_path}' requires FP8 via Transformer Engine, "
+                        f"which is not installed.\n"
+                        f"Install with: pip install transformer_engine\n"
+                        f"For inference without TE, use any 7b model: Evo2('evo2_7b')"
+                    )
+
             model = StripedHyena(config)
             load_checkpoint(model, local_path)
             return model
@@ -252,6 +276,21 @@ class Evo2:
                 
         config = yaml.safe_load(pkgutil.get_data(__name__, config_path))
         global_config = dotdict(config, Loader=yaml.FullLoader)
+
+        if global_config.get("use_fp8_input_projections", False) and not HAS_TE:
+            if "7b" in (model_name or ""):
+                warnings.warn(
+                    "Transformer Engine not installed. "
+                    "Falling back to bf16 projections (use_fp8_input_projections=False). "
+                )
+                global_config.use_fp8_input_projections = False
+            else:
+                raise ImportError(
+                    f"Model '{model_name}' requires FP8 via Transformer Engine, "
+                    f"which is not installed.\n"
+                    f"Install with: pip install transformer_engine\n"
+                    f"For inference without TE, use any 7b model: Evo2('evo2_7b')"
+                )
 
         model = StripedHyena(global_config)
         load_checkpoint(model, weights_path)
