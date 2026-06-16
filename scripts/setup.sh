@@ -89,7 +89,7 @@ fi
 #    source in evo2/, not upstream.)
 log "installing local evo2Mac package (editable, no deps)..."
 pip install --no-deps -e "$REPO_ROOT"
-pip install biopython huggingface_hub pyyaml einops>=0.8 packaging rich tqdm numpy
+pip install biopython huggingface_hub pyyaml "einops>=0.8" packaging rich tqdm numpy
 
 # 6. Apply runtime vortex patches
 log "applying vortex MPS patches..."
