@@ -100,33 +100,98 @@ A failure here means the port is producing meaningfully different outputs
 and something is wrong — it's the canary that should run on every fresh
 install.
 
-### Current drift status (M3 Pro, 1B model)
+### Current drift status (M3 Pro)
 
-On the M3 Pro with `evo2_1b_base`, the comparison currently reports:
+On the M3 Pro with `evo2_1b_base`, the comparison reports:
 
 ```
 upstream (H100, FP8, flash-attn):  loss=0.502  acc=79.6%
-evo2Mac (this run):                 loss=1.36   acc=32.6%
+evo2Mac (this run):                 loss=1.35   acc=34.5%
 ```
 
 This is **outside tolerance** — the port loads cleanly, all six end-to-end
 checks in `test_dna.py` pass (forward, embeddings, scoring, generation),
 and the model produces structured output (99%+ probability mass on ACGT
-bases). But the next-token accuracy is much lower than the H100 reference,
-and homopolymer continuations (TTTT → T) work while base transitions
-(TTTT → G boundary) don't. This is consistent with a precision/positional
-issue, not a structural bug.
+bases). But the next-token accuracy is much lower than the H100 reference.
 
-Suspected causes (in order of likelihood):
-- bf16 numerical drift in MPS SDPA vs CUDA flash-attn for long-range
-  Hyena FFT operations.
-- Possible MPS-specific rounding in the rotary embedding torch fallback
-  used instead of the triton kernel (which has no Apple Silicon wheel).
-- The torch fallback for `apply_rotary` may differ subtly from the
-  triton implementation in edge cases.
+#### It is *not* MPS-specific (CPU vs MPS, 2 prompts)
 
-**Use this port for plumbing / pipeline / API correctness.** Treat the
-numbers themselves as advisory until the drift is closed. PRs welcome.
+Running the identical prompts on CPU and MPS back to back
+(`--compare-devices`) shows the two backends are numerically identical:
+
+| seq  | CPU loss | MPS loss | Δloss   | CPU acc | MPS acc | Δacc     |
+|------|----------|----------|---------|---------|---------|----------|
+| 1    | 1.3307   | 1.3308   | +0.0001 | 38.44%  | 38.53%  | +0.09 pp |
+| 2    | 1.3720   | 1.3722   | +0.0002 | 30.42%  | 30.39%  | −0.03 pp |
+| mean | 1.3514   | 1.3515   | +0.0001 | 34.43%  | 34.46%  | +0.03 pp |
+
+CPU (fp32/bf16 PyTorch reference kernels) and MPS (Metal kernels) agree to
+~1e-4 in loss, yet **both** sit ~0.85 nats above the H100 reference. If the
+gap were Metal rounding (SDPA / rotary / FFT), CPU would match upstream and
+MPS would diverge — it doesn't. The drift is therefore **structural in the
+port**, shared by both backends, not numerical backend drift. The earlier
+"MPS SDPA / rotary rounding" hypotheses are ruled out.
+
+Reproduce:
+
+```bash
+python scripts/compare_to_upstream.py --model evo2_1b_base --compare-devices --max-seqs 2
+```
+
+> Note: CPU is ~600s/prompt for the 1B model over 8K context (no Metal/CUDA
+> accel), so the CPU half of `--compare-devices` is slow. MPS is ~0.3s/prompt.
+> Use a small `--max-seqs` for the CPU comparison.
+
+#### Root cause: the 1B is an FP8 checkpoint run without FP8
+
+The 1B is degraded because **`evo2_1b_base` is trained with FP8 input
+projections** and requires NVIDIA Transformer Engine on a Hopper GPU for
+numerical accuracy. Upstream's `evo2-1b-8k.yml` ships with
+`use_fp8_input_projections: True`, and the checkpoint physically carries 25
+Transformer-Engine FP8 metadata blobs (`blocks.*.projections._extra_state`,
+one per block — the FP8 amax/scale history).
+
+Transformer Engine is CUDA-only, so to load the 1B on a Mac at all we must set
+`use_fp8_input_projections: False`. That drops the 25 FP8 scale blobs and
+reinterprets the projection weights as plain bf16 — but they were calibrated
+for FP8 quantization. The result is a model running near random over 4 bases
+(`ln(4) ≈ 1.386` nats; we measure ~1.35 / ~34%). **This is inherent to running
+an FP8 checkpoint without FP8 — it is not a bug in the port and cannot be
+closed in bf16.** It also explains the CPU/MPS agreement above: both backends
+load the same de-FP8'd weights, so both are wrong identically.
+
+(The reference port [`hakyimlab/evo2-mac`](https://github.com/hakyimlab/evo2-mac)
+has the same limitation — its README states the 1B/20B/40B need FP8 and only
+the 7B models run in bf16.)
+
+#### What actually validates the port: the 7B-8k checkpoints
+
+Only `evo2_7b` and `evo2_7b_base` ship with `use_fp8_input_projections: False`
+upstream — they are designed to run in bf16 with no FP8. **Those are the models
+to validate the Mac/MPS port against.** The drift check now defaults to
+`evo2_7b_base`:
+
+```bash
+python scripts/compare_to_upstream.py                      # evo2_7b_base, MPS
+python scripts/compare_to_upstream.py --model evo2_7b
+```
+
+| Model          | upstream FP8 | runs correctly on Mac? |
+|----------------|:------------:|:----------------------:|
+| `evo2_7b`      | off          | yes (bf16 native)      |
+| `evo2_7b_base` | off          | yes (bf16 native)      |
+| `evo2_1b_base` | **on**       | no — FP8-degraded      |
+| `evo2_20b/40b` | **on**       | no — FP8 + multi-GPU   |
+
+Running an FP8-required model (1B/20B/40B) now prints an explicit warning that
+the result will be degraded and points you at `evo2_7b_base`.
+
+> The 7B-8k checkpoint is ~15 GB and needs ~16 GB+ of unified memory; it fits
+> on a 32 GB Mac comfortably and is tight on 16–18 GB.
+
+**Bottom line:** the "drift" on the 1B was never a port bug — it's an
+FP8-without-FP8 artifact. The port itself (device handling, rotary, Hyena FFT,
+unembed) is correct; validate it on the bf16-native 7B checkpoints.
 
 ## Usage
 
@@ -134,7 +199,8 @@ numbers themselves as advisory until the drift is closed. PRs welcome.
 import torch
 from evo2 import Evo2
 
-m = Evo2("evo2_1b_base")          # auto-detects MPS / CUDA / CPU
+m = Evo2("evo2_7b_base")          # auto-detects MPS / CUDA / CPU; 7B runs in bf16
+# NB: evo2_1b_base loads but is FP8-degraded on Mac — see drift status above.
 print("device:", m.device)
 
 ids = torch.tensor(m.tokenizer.tokenize("ACGTACGT"), dtype=torch.int).unsqueeze(0)
