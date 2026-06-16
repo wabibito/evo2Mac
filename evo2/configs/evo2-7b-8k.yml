@@ -51,7 +51,7 @@ use_fp8_input_projections: False
 max_seqlen: 32768
 max_batch_size: 1
 final_norm: True 
-use_flash_attn: True
+use_flash_attn: False  # evo2Mac: SDPA fallback works on MPS
 use_flash_rmsnorm: False
 use_flash_depthwise: False
 use_flashfft: False
