@@ -55,17 +55,19 @@ Prerequisites: Apple Silicon Mac, macOS 14+, [Homebrew](https://brew.sh).
 ```bash
 git clone https://github.com/wabi-media/evo2Mac.git
 cd evo2Mac
-./scripts/setup.sh
+./install.sh                                          # one-shot setup
 conda activate evo2Mac
 
-# 1. Quick smoke test (one forward pass)
-python scripts/smoke_test.py --model evo2_1b_base
+# Web UI (recommended):
+python webapp.py                                      # opens http://localhost:7860
 
-# 2. Full DNA pipeline: tokenize -> forward -> embed -> score -> generate
-python scripts/test_dna.py --model evo2_1b_base
+# Or CLI:
+python scripts/smoke_test.py --model evo2_1b_base     # one forward pass
+python scripts/test_dna.py --model evo2_1b_base       # full DNA pipeline
+python scripts/compare_to_upstream.py --model evo2_1b_base   # numerical sanity check
 
-# 3. Compare numerical results to upstream's CUDA reference values
-python scripts/compare_to_upstream.py --model evo2_1b_base
+# When done, clean everything up:
+./uninstall.sh                                        # removes env + HF cache
 ```
 
 `setup.sh` will:
@@ -97,6 +99,34 @@ drift is expected:
 A failure here means the port is producing meaningfully different outputs
 and something is wrong — it's the canary that should run on every fresh
 install.
+
+### Current drift status (M3 Pro, 1B model)
+
+On the M3 Pro with `evo2_1b_base`, the comparison currently reports:
+
+```
+upstream (H100, FP8, flash-attn):  loss=0.502  acc=79.6%
+evo2Mac (this run):                 loss=1.36   acc=32.6%
+```
+
+This is **outside tolerance** — the port loads cleanly, all six end-to-end
+checks in `test_dna.py` pass (forward, embeddings, scoring, generation),
+and the model produces structured output (99%+ probability mass on ACGT
+bases). But the next-token accuracy is much lower than the H100 reference,
+and homopolymer continuations (TTTT → T) work while base transitions
+(TTTT → G boundary) don't. This is consistent with a precision/positional
+issue, not a structural bug.
+
+Suspected causes (in order of likelihood):
+- bf16 numerical drift in MPS SDPA vs CUDA flash-attn for long-range
+  Hyena FFT operations.
+- Possible MPS-specific rounding in the rotary embedding torch fallback
+  used instead of the triton kernel (which has no Apple Silicon wheel).
+- The torch fallback for `apply_rotary` may differ subtly from the
+  triton implementation in edge cases.
+
+**Use this port for plumbing / pipeline / API correctness.** Treat the
+numbers themselves as advisory until the drift is closed. PRs welcome.
 
 ## Usage
 
