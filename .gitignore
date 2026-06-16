@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+build/
+dist/
+.pytest_cache/
+
+# Envs
+.venv/
+venv/
+env/
+.python-version
+
+# OS
+.DS_Store
+._*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Local model cache & data (large)
+huggingface/
+.cache/
+*.pt
+*.bin
+*.safetensors
+*.gz
+*.fna
+*.fasta
+
+# Logs & debug
+*.log
+activations_debug.log
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local environment overrides
+.env
+.envrc
+local_config.yml
