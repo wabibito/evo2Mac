@@ -37,27 +37,29 @@ import numpy as np
 import torch
 
 # Upstream H100 references (% matching nucleotides, greedy 500-token gen).
+# Verbatim from upstream evo2/test/test_evo2_generation.py `expected_scores`.
 REFERENCE = {
     "evo2_40b": 91.15,
     "evo2_7b": 89.25,
-    "evo2_20b": 93.4,
     "evo2_1b_base": 68.0,
+    "evo2_20b": 93.4,
 }
-# Tolerance: upstream uses eps=3 ("numeric differences by versions"); MPS bf16
-# (and no flash-attn) drifts a bit more, so we report rather than hard-pass.
+# Upstream's own tolerance: eps=3 ("numeric differences by versions").
 TOLERANCE = 3.0
 
 
-def read_prompts() -> list[str]:
+def read_prompts() -> tuple[list[str], list[str]]:
+    """Return (sequences, names) from the bundled prompts.csv."""
     with resources.path("evo2.test.data", "prompts.csv") as p:
-        seqs = []
+        seqs, names = [], []
         with open(p, encoding="utf-8-sig", newline="") as f:
             reader = csv.reader(f)
             next(reader)
             for row in reader:
                 if row:
                     seqs.append(row[0])
-    return seqs
+                    names.append(row[1] if len(row) > 1 else f"seq{len(seqs)}")
+    return seqs, names
 
 
 def mid_point_split(seq: str, num_tokens: int) -> tuple[str, str]:
@@ -72,6 +74,30 @@ def identity(a: str, b: str) -> float:
     return 100.0 * sum(x == y for x, y in zip(a[:n], b[:n])) / n
 
 
+def gen_identities(model, seqs, n_tokens, prompt_cap) -> list[float]:
+    """Per-prompt greedy-generation nucleotide identity vs the true continuation."""
+    out_scores = []
+    for i, seq in enumerate(seqs):
+        prompt, target = mid_point_split(seq, n_tokens)
+        if prompt_cap:
+            prompt = prompt[-prompt_cap:]
+        t0 = time.time()
+        with torch.inference_mode():
+            out = model.generate(
+                prompt_seqs=[prompt],
+                n_tokens=n_tokens,
+                temperature=1.0,
+                top_k=1,          # greedy
+                top_p=1.0,
+                cached_generation=True,
+                verbose=0,
+            )
+        sc = identity(out.sequences[0], target)
+        out_scores.append(sc)
+        print(f"    seq {i+1}/{len(seqs)}: identity={sc:.2f}%  ({time.time()-t0:.1f}s)")
+    return out_scores
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="evo2_7b_base")
@@ -80,6 +106,8 @@ def main() -> int:
                     help="limit prompts (full set is slow on MPS)")
     ap.add_argument("--prompt-cap", type=int, default=None,
                     help="truncate each prompt to N bases to fit MPS memory")
+    ap.add_argument("--compare-fp8", action="store_true",
+                    help="run each prompt both bf16 and FP8-emulated (per-prompt table)")
     args = ap.parse_args()
 
     sys.stdout.reconfigure(line_buffering=True)
@@ -87,40 +115,49 @@ def main() -> int:
     if torch.backends.mps.is_available():
         torch.mps.manual_seed(1)
 
+    from evo2 import Evo2
+    seqs, names = read_prompts()
+    if args.max_seqs:
+        seqs, names = seqs[: args.max_seqs], names[: args.max_seqs]
+
+    if args.compare_fp8:
+        # Load with emulation OFF for the bf16 pass, then apply it for the second.
+        os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+        from evo2.fp8_emulation import apply_fp8_emulation
+        t0 = time.time()
+        model = Evo2(args.model)
+        print(f"model: {args.model}  device: {model.device}  loaded in {time.time()-t0:.1f}s")
+        print(f"  {len(seqs)} prompts, greedy gen of {args.n_tokens} tokens\n")
+
+        print("  [bf16] generating ...")
+        bf16 = gen_identities(model, seqs, args.n_tokens, args.prompt_cap)
+        ckpt = next(__import__("glob").iglob(
+            os.path.expanduser(f"~/.cache/huggingface/**/{args.model}.pt"), recursive=True))
+        n = apply_fp8_emulation(model.model, ckpt)
+        print(f"\n  applied FP8 e4m3 emulation to {n} projection(s)")
+        print("  [emul] generating ...")
+        emu = gen_identities(model, seqs, args.n_tokens, args.prompt_cap)
+
+        print("\nper-prompt generation identity (% matching nucleotides):")
+        print(f"  {'prompt':<28} {'bf16':>8} {'e4m3 emul':>10}")
+        print("  " + "-" * 50)
+        for nm, b, e in zip(names, bf16, emu):
+            print(f"  {nm[:28]:<28} {b:7.2f}% {e:9.2f}%")
+        ref = REFERENCE.get(args.model)
+        print("  " + "-" * 50)
+        print(f"  {'MEAN':<28} {np.mean(bf16):7.2f}% {np.mean(emu):9.2f}%")
+        if ref is not None:
+            print(f"\n  upstream H100 reference: {ref:.2f}%")
+        return 0
+
     fp8 = os.environ.get("EVO2MAC_FP8_EMULATION") == "1"
     print(f"model: {args.model}   FP8 emulation: {'ON' if fp8 else 'off'}")
-
-    from evo2 import Evo2
     t0 = time.time()
     model = Evo2(args.model)
     print(f"  device: {model.device}   loaded in {time.time() - t0:.1f}s")
-
-    seqs = read_prompts()
-    if args.max_seqs:
-        seqs = seqs[: args.max_seqs]
     print(f"  {len(seqs)} prompts, greedy gen of {args.n_tokens} tokens\n")
 
-    scores = []
-    for i, seq in enumerate(seqs):
-        prompt, target = mid_point_split(seq, args.n_tokens)
-        if args.prompt_cap:
-            prompt = prompt[-args.prompt_cap:]
-        t0 = time.time()
-        with torch.inference_mode():
-            out = model.generate(
-                prompt_seqs=[prompt],
-                n_tokens=args.n_tokens,
-                temperature=1.0,
-                top_k=1,          # greedy
-                top_p=1.0,
-                cached_generation=True,
-                verbose=0,
-            )
-        gen = out.sequences[0]
-        sc = identity(gen, target)
-        scores.append(sc)
-        print(f"  seq {i+1}/{len(seqs)}: identity={sc:.2f}%  ({time.time()-t0:.1f}s)")
-
+    scores = gen_identities(model, seqs, args.n_tokens, args.prompt_cap)
     mean = float(np.mean(scores))
     ref = REFERENCE.get(args.model)
 

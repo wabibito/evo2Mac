@@ -29,26 +29,31 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# Per-model H100 + FP8 + flash-attn references (from upstream test_evo2.py).
+# Per-model H100 + FP8 + flash-attn references. Verbatim from upstream
+# evo2/test/test_evo2.py `expected_metrics` (full precision, not rounded).
 REFERENCE = {
-    "evo2_1b_base": {"loss": 0.502, "acc": 79.6},
-    "evo2_7b_base": {"loss": 0.352, "acc": 85.9},
-    "evo2_7b":      {"loss": 0.348, "acc": 86.3},
-    "evo2_7b_262k": {"loss": 0.352, "acc": 85.9},
+    "evo2_40b":      {"loss": 0.2159424, "acc": 91.673},
+    "evo2_7b":       {"loss": 0.3476563, "acc": 86.346},
+    "evo2_40b_base": {"loss": 0.2149658, "acc": 91.741},
+    "evo2_7b_base":  {"loss": 0.3520508, "acc": 85.921},
+    "evo2_1b_base":  {"loss": 0.501953125, "acc": 79.556},
+    "evo2_20b":      {"loss": 0.2166748046875, "acc": 91.666},
 }
 
 
-def read_prompts() -> list[str]:
+def read_prompts() -> tuple[list[str], list[str]]:
+    """Return (sequences, names) from the bundled prompts.csv."""
     with resources.path("evo2.test.data", "prompts.csv") as p:
         import csv
-        seqs = []
+        seqs, names = [], []
         with open(p, encoding="utf-8-sig", newline="") as f:
             reader = csv.reader(f)
             next(reader)
             for row in reader:
                 if row:
                     seqs.append(row[0].strip())
-    return seqs
+                    names.append(row[1] if len(row) > 1 else f"seq{len(seqs)}")
+    return seqs, names
 
 
 def find_checkpoint(model_name: str) -> str:
@@ -63,12 +68,9 @@ def find_checkpoint(model_name: str) -> str:
     raise FileNotFoundError(f"could not locate {model_name}.pt in the HF cache")
 
 
-def evaluate(evo, seqs, max_len: int | None) -> tuple[float, float]:
-    """Mean next-token cross-entropy and accuracy over the prompts.
-
-    ``evo`` is the Evo2 wrapper (has .tokenizer/.device/__call__).
-    """
-    losses, accs = [], []
+def evaluate(evo, seqs, max_len: int | None) -> list[tuple[float, float]]:
+    """Per-prompt next-token (loss, accuracy%). ``evo`` is the Evo2 wrapper."""
+    out = []
     for seq in seqs:
         if max_len:
             seq = seq[:max_len]
@@ -77,12 +79,14 @@ def evaluate(evo, seqs, max_len: int | None) -> tuple[float, float]:
             logits, _ = evo(ids)
         logits = logits[0, :-1].float()
         targets = ids[0, 1:].long()
-        loss = F.cross_entropy(logits, targets)
-        pred = logits.argmax(-1)
-        acc = (pred == targets).float().mean() * 100
-        losses.append(loss.item())
-        accs.append(acc.item())
-    return float(np.mean(losses)), float(np.mean(accs))
+        loss = F.cross_entropy(logits, targets).item()
+        acc = ((logits.argmax(-1) == targets).float().mean() * 100).item()
+        out.append((loss, acc))
+    return out
+
+
+def _mean(rows):
+    return float(np.mean([r[0] for r in rows])), float(np.mean([r[1] for r in rows]))
 
 
 def main() -> int:
@@ -112,15 +116,15 @@ def main() -> int:
     ckpt = find_checkpoint(args.model)
     print(f"  checkpoint: {ckpt}")
 
-    seqs = read_prompts()
+    seqs, names = read_prompts()
     if args.max_seqs:
-        seqs = seqs[: args.max_seqs]
+        seqs, names = seqs[: args.max_seqs], names[: args.max_seqs]
     print(f"  {len(seqs)} prompts" + (f", truncated to {args.max_len} bases" if args.max_len else ""))
 
     print("\n[baseline] bf16 fallback (FP8 disabled) ...")
     t0 = time.time()
-    base_loss, base_acc = evaluate(model, seqs, args.max_len)
-    print(f"  loss={base_loss:.4f}  acc={base_acc:.2f}%  ({time.time() - t0:.1f}s)")
+    base = evaluate(model, seqs, args.max_len)
+    print(f"  done ({time.time() - t0:.1f}s)")
 
     print("\napplying FP8 e4m3 emulation to input projections ...")
     n = apply_fp8_emulation(model.model, ckpt)
@@ -128,12 +132,22 @@ def main() -> int:
 
     print("\n[emulated] TE-faithful e4m3 projections ...")
     t0 = time.time()
-    emu_loss, emu_acc = evaluate(model, seqs, args.max_len)
-    print(f"  loss={emu_loss:.4f}  acc={emu_acc:.2f}%  ({time.time() - t0:.1f}s)")
+    emu = evaluate(model, seqs, args.max_len)
+    print(f"  done ({time.time() - t0:.1f}s)")
 
+    # Per-prompt breakdown.
+    print("\nper-prompt (acc% / loss):")
+    print(f"  {'prompt':<26} {'len':>5} | {'bf16':>16} | {'e4m3 emul':>16}")
+    print("  " + "-" * 70)
+    for nm, s, b, e in zip(names, seqs, base, emu):
+        ln = min(len(s), args.max_len) if args.max_len else len(s)
+        print(f"  {nm[:26]:<26} {ln:>5} | {b[1]:6.2f}% {b[0]:8.4f} | {e[1]:6.2f}% {e[0]:8.4f}")
+
+    base_loss, base_acc = _mean(base)
+    emu_loss, emu_acc = _mean(emu)
     ref = REFERENCE.get(args.model, {"loss": float("nan"), "acc": float("nan")})
     print("\n" + "=" * 62)
-    print(f"  reference (H100, FP8):  loss={ref['loss']:.3f}  acc={ref['acc']:.1f}%")
+    print(f"  reference (H100, FP8):  loss={ref['loss']:.4f}  acc={ref['acc']:.3f}%")
     print(f"  bf16 fallback:          loss={base_loss:.4f}  acc={base_acc:.2f}%")
     print(f"  e4m3 emulated:          loss={emu_loss:.4f}  acc={emu_acc:.2f}%")
     print(f"  improvement:            Δloss={base_loss - emu_loss:+.4f}  Δacc={emu_acc - base_acc:+.2f}pp")
