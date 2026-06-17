@@ -227,17 +227,21 @@ python scripts/compare_to_upstream.py                      # evo2_7b_base, MPS
 python scripts/compare_to_upstream.py --model evo2_7b
 ```
 
-And it passes. On the M3 Pro (18 GB), `evo2_7b_base` over the first 4 prompts
-truncated to 2048 bases (`--max-len 2048`, see memory note below):
+And it passes. On a 64 GB Mac, `evo2_7b_base` over the first 4 prompts at
+**full 8K context** (no truncation):
 
 ```
-upstream (H100, FP8, flash-attn):  loss=0.352  acc=85.92%
-evo2Mac (MPS, bf16):                loss=0.391  acc=83.95%   (Δloss +0.039, Δacc −1.97pp)
--> loss within ±0.05: OK; port matches upstream within tolerance
+upstream (H100, FP8, flash-attn):  loss=0.3521  acc=85.921%
+evo2Mac (MPS, bf16):                loss=0.3521  acc=85.979%   (Δloss +0.0001, Δacc +0.058pp)
+-> loss within ±0.05: OK; accuracy within ±1.5pp: OK; port matches upstream within tolerance
 ```
 
-Loss is comfortably inside tolerance; the ~2pp accuracy gap is from the 2048
-truncation (shorter context than the 8K reference), not a port defect. The
+For reference, the earlier M3 Pro (18 GB) run truncated to 2048 bases
+(`--max-len 2048`, see memory note below) landed at loss=0.391 / acc=83.95%
+(Δloss +0.039, Δacc −1.97pp) — within tolerance, but with a ~2pp accuracy gap.
+That gap was the 2048 truncation (shorter context than the 8K reference), not a
+port defect: running full 8K context on a 32 GB+ Mac closes it almost entirely,
+as the numbers above show. The
 contrast with the 1B is the proof: identical code, kernels, and device — the
 bf16-native 7B reproduces upstream, the FP8-trained 1B does not. The "drift"
 was always FP8-without-FP8, never a bug in the port. (Per-model feasibility is
