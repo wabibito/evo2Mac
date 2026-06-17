@@ -153,9 +153,8 @@ a banner when an FP8-degraded checkpoint (`evo2_1b_base`) is selected. Override
 the bind host/port with `EVO2MAC_HOST` / `EVO2MAC_PORT`, or expose a public
 Gradio share link with `EVO2MAC_SHARE=1`.
 
-> The screenshot above shows an earlier 3-tab layout. To regenerate it against
-> the current UI: `./webui.sh start`, open http://localhost:7860 in a browser,
-> and save a full-page capture to `docs/webui.png`.
+To regenerate the screenshot after UI changes: `./webui.sh start`, open
+http://localhost:7860 in a browser, and save a capture to `docs/webui.png`.
 
 ## Verifying correctness vs upstream
 
