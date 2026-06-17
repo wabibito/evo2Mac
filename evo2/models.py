@@ -23,6 +23,12 @@ from vortex.model.utils import dotdict, print_rank_0, load_checkpoint
 from evo2.scoring import score_sequences, score_sequences_rc
 from evo2.utils import MODEL_NAMES, HF_MODEL_NAME_MAP, CONFIG_MAP
 
+# FP8-trained checkpoints where e4m3 emulation measurably recovers accuracy on
+# Mac (no Transformer Engine), so it's applied by default. The 7B checkpoints
+# are bf16-robust (emulation is a ~±0.05pp no-op) and are deliberately excluded.
+# 20B/40B don't run on Apple Silicon at all (TE + Hopper runtime).
+FP8_EMULATION_DEFAULT_MODELS = {"evo2_1b_base"}
+
 
 def _get_default_device() -> str:
     if torch.cuda.is_available():
@@ -78,14 +84,22 @@ class Evo2:
                 for k in list(self.model.block_idx_to_device):
                     self.model.block_idx_to_device[k] = self.device
 
-        # Mac/MPS: optional FP8 (e4m3) emulation for FP8-trained checkpoints
-        # (1B/20B/40B). Without Transformer Engine these run de-quantized in
-        # bf16 and produce near-random output; emulating TE's per-tensor e4m3
-        # input projections recovers most of the lost accuracy. Off by default
-        # (the 7B-8k checkpoints don't need it); enable with
-        # EVO2MAC_FP8_EMULATION=1.
+        # Mac/MPS: FP8 (e4m3) emulation for FP8-trained checkpoints.
+        #
+        # The 1B was trained with Transformer Engine FP8 input projections;
+        # without TE (CUDA-only) it falls back to bf16 and goes near-random.
+        # Emulating TE's per-tensor e4m3 projections recovers it (forward acc
+        # 33%->75%, greedy-generation identity 33%->67%, ~matching the H100
+        # reference). The 7B checkpoints are bf16-robust — emulation there is a
+        # measured no-op (~±0.05pp), so it is NOT applied automatically.
+        #
+        # Default: ON for the 1B, OFF otherwise. EVO2MAC_FP8_EMULATION=0 forces
+        # it off (1B runs degraded); =1 forces it on for any model.
+        flag = os.environ.get("EVO2MAC_FP8_EMULATION")
+        helps_by_default = (model_name or "") in FP8_EMULATION_DEFAULT_MODELS
+        want_emulation = flag == "1" or (flag != "0" and helps_by_default)
         if (
-            os.environ.get("EVO2MAC_FP8_EMULATION") == "1"
+            want_emulation
             and not torch.cuda.is_available()
             and not HAS_TE
         ):

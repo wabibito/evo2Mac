@@ -29,10 +29,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# Reference numbers for evo2_1b_base, measured on H100 + FP8 + flash-attn
-# (same source as scripts/compare_to_upstream.py).
-REF_LOSS = 0.502
-REF_ACC = 79.6
+# Per-model H100 + FP8 + flash-attn references (from upstream test_evo2.py).
+REFERENCE = {
+    "evo2_1b_base": {"loss": 0.502, "acc": 79.6},
+    "evo2_7b_base": {"loss": 0.352, "acc": 85.9},
+    "evo2_7b":      {"loss": 0.348, "acc": 86.3},
+    "evo2_7b_262k": {"loss": 0.352, "acc": 85.9},
+}
 
 
 def read_prompts() -> list[str]:
@@ -94,10 +97,14 @@ def main() -> int:
     if torch.backends.mps.is_available():
         torch.mps.manual_seed(1)
 
+    # Load with emulation forced OFF so the baseline is the true bf16 fallback
+    # (the Evo2 loader now applies emulation by default for the 1B). We then
+    # apply it explicitly below to measure the before/after delta.
+    os.environ["EVO2MAC_FP8_EMULATION"] = "0"
     from evo2 import Evo2
     from evo2.fp8_emulation import apply_fp8_emulation
 
-    print(f"loading {args.model} ...")
+    print(f"loading {args.model} (emulation off for baseline) ...")
     t0 = time.time()
     model = Evo2(args.model)
     print(f"  device: {model.device}  loaded in {time.time() - t0:.1f}s")
@@ -124,8 +131,9 @@ def main() -> int:
     emu_loss, emu_acc = evaluate(model, seqs, args.max_len)
     print(f"  loss={emu_loss:.4f}  acc={emu_acc:.2f}%  ({time.time() - t0:.1f}s)")
 
+    ref = REFERENCE.get(args.model, {"loss": float("nan"), "acc": float("nan")})
     print("\n" + "=" * 62)
-    print(f"  reference (H100, FP8):  loss={REF_LOSS:.3f}  acc={REF_ACC:.1f}%")
+    print(f"  reference (H100, FP8):  loss={ref['loss']:.3f}  acc={ref['acc']:.1f}%")
     print(f"  bf16 fallback:          loss={base_loss:.4f}  acc={base_acc:.2f}%")
     print(f"  e4m3 emulated:          loss={emu_loss:.4f}  acc={emu_acc:.2f}%")
     print(f"  improvement:            Δloss={base_loss - emu_loss:+.4f}  Δacc={emu_acc - base_acc:+.2f}pp")
