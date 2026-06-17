@@ -90,11 +90,16 @@ class Fp8EmulatedLinear(nn.Module):
         act_scale: float,
         weight_scale: float,
         skip_bias_add: bool = False,
+        return_tuple: bool = True,
     ):
         super().__init__()
         self.in_features = weight.shape[1]
         self.out_features = weight.shape[0]
         self.te_return_bias = skip_bias_add and (bias is not None)
+        # vortex's fallback TELinear returns (out, bias_or_None); plain nn.Linear
+        # layers (the 20B/40B MLPs, out-projection, Wqkv) return a bare tensor.
+        # Mirror whichever the module we replace used, or callers break.
+        self.return_tuple = return_tuple
 
         self.weight = nn.Parameter(weight)
         if bias is not None:
@@ -118,18 +123,24 @@ class Fp8EmulatedLinear(nn.Module):
         if self.bias is not None:
             out = out + self.bias
         out = out.to(w.dtype)
+        if not self.return_tuple:
+            return out
         if self.te_return_bias:
             return out, self.bias
         return out, None
 
 
-def extract_projection_scales(checkpoint_path: str) -> Dict[str, Dict[str, float]]:
-    """Read per-projection forward scales from a raw checkpoint's TE extra_state.
+def extract_fp8_scales(checkpoint_path: str) -> Dict[str, Dict[str, float]]:
+    """Read per-layer forward FP8 scales from EVERY TE ``_extra_state`` blob in a
+    raw checkpoint — not just the input projections.
+
+    The 1B is FP8 only on ``*.projections``, but the 20B/40B are FP8-trained on
+    many more linear layers (MLPs, the out-projection, attention QKV). Each has a
+    ``<module>._extra_state`` whose ``scale_fwd`` is ``[act, weight, unused]``.
 
     Must be called on the on-disk checkpoint: vortex strips ``._extra_state``
-    keys when Transformer Engine is absent, so the scales are gone by the time
-    the model is built. Returns ``{module_path: {"act": float, "weight": float}}``
-    keyed by the module path (e.g. ``"blocks.0.projections"``).
+    keys when Transformer Engine is absent. Returns
+    ``{module_path: {"act": float, "weight": float}}``.
     """
     sd = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if isinstance(sd, dict) and "module" in sd:
@@ -137,7 +148,7 @@ def extract_projection_scales(checkpoint_path: str) -> Dict[str, Dict[str, float
 
     scales: Dict[str, Dict[str, float]] = {}
     for key, value in sd.items():
-        if not key.endswith(".projections._extra_state"):
+        if not key.endswith("._extra_state"):
             continue
         module_path = key[: -len("._extra_state")]
         try:
@@ -148,26 +159,35 @@ def extract_projection_scales(checkpoint_path: str) -> Dict[str, Dict[str, float
                 meta = torch.load(io.BytesIO(value), map_location="cpu", weights_only=False)
             else:
                 continue
-            scale_fwd = meta["scale_fwd"]  # (3,): [act, weight, unused]
+            scale_fwd = meta.get("scale_fwd") if hasattr(meta, "get") else None
+            if scale_fwd is None or len(scale_fwd) < 2:
+                continue  # not a forward-GEMM FP8 layer we can emulate
             scales[module_path] = {
                 "act": float(scale_fwd[0]),
                 "weight": float(scale_fwd[1]),
             }
         except Exception:
-            # A projection we can't decode is skipped; the caller leaves that
-            # layer in its bf16 fallback rather than guessing a scale.
+            # A layer we can't decode is skipped; it stays in bf16 fallback
+            # rather than guessing a scale.
             continue
     return scales
 
 
-def apply_fp8_emulation(model: nn.Module, checkpoint_path: str) -> int:
-    """Swap every fallback ``TELinear`` projection in ``model`` for an
-    ``Fp8EmulatedLinear`` carrying that layer's checkpoint scales.
+# Back-compat alias (older name covered only projections).
+extract_projection_scales = extract_fp8_scales
 
-    Returns the number of projections replaced. Layers whose scales could not be
-    recovered are left untouched (bf16 fallback).
+
+def apply_fp8_emulation(model: nn.Module, checkpoint_path: str) -> int:
+    """Swap every FP8-trained linear in ``model`` for an ``Fp8EmulatedLinear``
+    carrying that layer's checkpoint scales.
+
+    Covers all modules with a recoverable ``scale_fwd`` and a ``.weight`` —
+    input projections (the 1B's only FP8 layers) plus the 20B/40B's MLPs,
+    out-projection and attention QKV. Modules whose scales can't be recovered,
+    or that lack a wrappable ``.weight`` (e.g. attention metadata states), are
+    left in their bf16 fallback. Returns the number of layers replaced.
     """
-    scales = extract_projection_scales(checkpoint_path)
+    scales = extract_fp8_scales(checkpoint_path)
     if not scales:
         return 0
 
@@ -179,14 +199,19 @@ def apply_fp8_emulation(model: nn.Module, checkpoint_path: str) -> int:
         if parent is None:
             continue
         old = getattr(parent, attr, None)
-        if old is None or not hasattr(old, "weight"):
+        if old is None or not hasattr(old, "weight") or old.weight is None:
             continue
+        # TELinear (the input projections) returns a (out, bias) tuple and has
+        # te_return_bias; a plain nn.Linear (MLPs, out-proj, Wqkv) returns a
+        # bare tensor. Mirror the original's convention.
+        is_te = hasattr(old, "te_return_bias")
         new = Fp8EmulatedLinear(
             weight=old.weight.data,
             bias=old.bias.data if getattr(old, "bias", None) is not None else None,
             act_scale=sc["act"],
             weight_scale=sc["weight"],
             skip_bias_add=getattr(old, "te_return_bias", False),
+            return_tuple=is_te,
         ).to(old.weight.device)
         setattr(parent, attr, new)
         replaced += 1

@@ -81,12 +81,16 @@ Notes:
 - **20B/40B are code-enabled and load** (configs are Mac-patched to drop the
   Transformer Engine / Hopper / flash-attn dependencies; 20B loads and runs on a
   64 GB Mac, 40B needs ≥96 GB). **But they are not yet numerically usable on Mac:**
-  unlike the 1B (FP8 only on input projections, which our emulation covers), the
-  20B/40B were FP8-trained on ~120 layers — projections *and* every MLP, the
-  out-projection, and attention. Our e4m3 emulation currently covers only the
-  input projections, so 20B output stays near-random (24% vs the 91.7% H100 ref).
-  Full recovery needs the emulation extended to those layer types — tracked as
-  future work. Use a 7B-8k (or the 1B with emulation) for real results today.
+  the 20B/40B were FP8-trained on ~120 layers (projections, every MLP, the
+  out-projection, attention). The emulation now covers all 117 such linears — but
+  the 20B is **still near-random** (24% → 25% vs the 91.7% H100 ref). Digging in:
+  this is *not* the FP8-projection issue the 1B had. All weights load (incl. the
+  hyena filters), the embedding is tied correctly, and the 20B's weight magnitudes
+  sit comfortably within bf16 — so e4m3 ≈ bf16 for it and FP8 simply isn't the
+  bottleneck. Its logits are structured (mass on ACGT) but can't discriminate the
+  next base: a deeper bf16-forward problem specific to the 20B architecture on
+  this MPS port that would need a layer-by-layer diff against a real H100/TE run
+  to pin down. **Use a 7B-8k (or the 1B with emulation) for real results.**
 - **Memory:** the 7B (~14 GB weights) loads on a 16–18 GB Mac, but a full
   8K-context forward pass overruns the MPS allocation watermark. Cap the context
   with `--max-len 2048` (and optionally `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0`)
