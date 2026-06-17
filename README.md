@@ -19,34 +19,66 @@ which are CUDA-only. This fork:
 2. Adds MPS-aware device detection in `evo2/models.py` and `evo2/scoring.py`.
 3. Extends the bf16 fallback (when Transformer Engine is missing) to also
    cover the 1B model — upstream only falls back for 7B.
-4. Provides a runtime patcher (`patches/patch_vortex.py`) that fixes three
-   CUDA-isms in the installed `vortex` (`vtx` on PyPI) package:
-   - `torch.autocast("cuda")` → device-aware autocast
+4. Provides a runtime patcher (`patches/patch_vortex.py`) that fixes the
+   CUDA-isms in the installed `vortex` (`vtx` on PyPI) package. It applies
+   seven edits across `engine.py`, `generation.py`, `model.py`, `utils.py`,
+   `rotary.py`, and `ops/attn_interface.py`:
+
+   *Crash fixes (vortex won't import/run on Mac without these):*
+   - `torch.autocast("cuda")` → device-aware autocast (bf16 on MPS)
    - `torch.fft.fft(...).repeat(...)` → `.unsqueeze().expand()`
      (MPS doesn't support `.repeat` on complex tensors in PT 2.x)
    - `torch.cuda.empty_cache()` / `torch.cuda.memory_allocated()` → device-aware
+   - `with torch.cuda.device(...)` → `contextlib.nullcontext()` off CUDA
+   - `import flash_attn_2_cuda` → made optional (only used when flash-attn is on)
+
+   *Correctness fixes (silent wrong output without these):*
+   - Triton `apply_rotary` → a torch fallback (`apply_rotary_emb_torch`), since
+     triton has no Apple-Silicon wheel.
+   - **Force the rotary QKV "view" path off CUDA.** The fast path reshapes
+     `qkv[:, :, :2]`, which can return a *copy* (not a view) when non-contiguous;
+     the in-place rotary then writes to the copy and attention sees un-rotated
+     Q/K → near-uniform predictions. The slow path indexes `qkv[:, :, 0/1]`
+     (genuine views), so the rotation writes back correctly.
 
 The patcher writes `.bak` files and is idempotent — re-running is safe, and
-`python patches/patch_vortex.py --restore` puts the originals back.
+`python patches/patch_vortex.py --restore` puts the originals back. The rotary,
+unembed, and Hyena-FFT paths have all been verified numerically correct on MPS
+(see the drift section).
 
 ## Models
 
-| Checkpoint            | Size (bf16) | Runs on Mac?              |
-|-----------------------|-------------|---------------------------|
-| `evo2_1b_base`        | ~4 GB       | ✓ 16 GB unified mem OK    |
-| `evo2_7b`             | ~14 GB      | ✓ needs 32 GB+ Mac        |
-| `evo2_7b_base`        | ~14 GB      | ✓ needs 32 GB+ Mac        |
-| `evo2_7b_262k`        | ~14 GB      | ✓ needs 32 GB+ Mac        |
-| `evo2_7b_microviridae`| ~14 GB      | ✓ needs 32 GB+ Mac        |
-| `evo2_20b`            | ~40 GB      | ✗ requires FP8 + Hopper   |
-| `evo2_40b`            | ~80 GB      | ✗ requires FP8 + Hopper   |
-| `evo2_40b_base`       | ~80 GB      | ✗ requires FP8 + Hopper   |
+Whether a checkpoint runs *correctly* on Mac depends on one thing:
+**`use_fp8_input_projections`** in its upstream config. Models trained with FP8
+input projections (`True`) require NVIDIA Transformer Engine on a Hopper GPU for
+numerical accuracy. TE is CUDA-only, so on Mac they load in bf16 with FP8
+disabled — which degrades them to near-random output. Only the 7B-8k
+checkpoints ship with FP8 *off*, so they are the ones that reproduce upstream.
+(See [the drift section](#verifying-correctness-vs-upstream) for the full
+analysis and measured numbers.)
 
-The 20B/40B exclusion is a *runtime* constraint (Transformer Engine + Hopper
-GPUs), not just a memory one. They will not run on Apple Silicon even if it
-fit. Long-context 7B (`evo2_7b`, 1M context) is technically loadable but the
-prefill cost on MPS will be painful — start with `evo2_7b_262k` or
-`evo2_7b_base` (8K context).
+| Checkpoint            | Size (bf16) | Upstream FP8 | Runs **correctly** on Mac?            |
+|-----------------------|-------------|:------------:|----------------------------------------|
+| `evo2_7b`             | ~14 GB      | off          | ✓ bf16-native; best choice             |
+| `evo2_7b_base`        | ~14 GB      | off          | ✓ bf16-native; **validated** (default) |
+| `evo2_7b_262k`        | ~14 GB      | off          | ✓ bf16-native (262K context)           |
+| `evo2_7b_microviridae`| ~14 GB      | off          | ✓ bf16-native                          |
+| `evo2_1b_base`        | ~4 GB       | **on**       | ✗ loads, but FP8-degraded (~random)    |
+| `evo2_20b`            | ~40 GB      | **on**       | ✗ FP8 + Hopper + multi-GPU             |
+| `evo2_40b` / `_base`  | ~80 GB      | **on**       | ✗ FP8 + Hopper + multi-GPU             |
+
+Notes:
+- **`evo2_1b_base` loads and is great for plumbing/API testing, but its
+  predictions are FP8-degraded** — do not trust its loss/accuracy. Use a 7B-8k
+  model for real inference.
+- The 20B/40B exclusion is a *runtime* constraint (Transformer Engine + Hopper),
+  not just memory — they won't run on Apple Silicon at all.
+- **Memory:** the 7B (~14 GB weights) loads on a 16–18 GB Mac, but a full
+  8K-context forward pass overruns the MPS allocation watermark. Cap the context
+  with `--max-len 2048` (and optionally `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0`)
+  on ≤18 GB Macs; a 32 GB+ Mac runs full 8K without truncation.
+- Long-context 7B (`evo2_7b` at 1M) is loadable but the prefill cost on MPS is
+  painful — start with `evo2_7b_base` (8K).
 
 ## Quick start
 
@@ -61,22 +93,32 @@ conda activate evo2Mac
 # Web UI (recommended):
 python webapp.py                                      # opens http://localhost:7860
 
-# Or CLI:
-python scripts/smoke_test.py --model evo2_1b_base     # one forward pass
-python scripts/test_dna.py --model evo2_1b_base       # full DNA pipeline
-python scripts/compare_to_upstream.py --model evo2_1b_base   # numerical sanity check
+# Or CLI (use a 7B-8k model — it's the bf16-native, validated one):
+python scripts/smoke_test.py --model evo2_7b_base          # one forward pass
+python scripts/test_dna.py --model evo2_7b_base            # full DNA pipeline
+python scripts/compare_to_upstream.py                      # drift check (defaults to evo2_7b_base)
+
+# On a 16-18 GB Mac, cap the context so the 7B forward pass fits MPS memory:
+python scripts/compare_to_upstream.py --max-len 2048
+
+# evo2_1b_base loads fastest and is fine for testing the pipeline/API, but its
+# predictions are FP8-degraded (see Models above) — not for real inference.
 
 # When done, clean everything up:
-./uninstall.sh                                        # removes env + HF cache
+./uninstall.sh                                             # removes env + HF cache
 ```
 
-`setup.sh` will:
+`install.sh` will:
 1. Install miniforge via Homebrew (skip if present).
 2. Create a Python 3.11 conda env named `evo2Mac`.
 3. Install PyTorch with MPS support.
 4. Install `vtx` (the StripedHyena 2 runtime; imported as `vortex`).
 5. Install this package in editable mode (`pip install -e . --no-deps`).
 6. Apply the runtime patches to the installed `vortex` package.
+
+It is re-runnable (each step skips if already done). **If you recreate the env
+or upgrade `vtx`, re-run `python patches/patch_vortex.py`** — the patches modify
+the installed `vortex` in place, so they must be re-applied on every machine.
 
 On first model load, the checkpoint is downloaded into your HuggingFace cache
 (`~/.cache/huggingface/`). Change with `HF_HOME=/path/to/cache`.
@@ -189,17 +231,11 @@ Loss is comfortably inside tolerance; the ~2pp accuracy gap is from the 2048
 truncation (shorter context than the 8K reference), not a port defect. The
 contrast with the 1B is the proof: identical code, kernels, and device — the
 bf16-native 7B reproduces upstream, the FP8-trained 1B does not. The "drift"
-was always FP8-without-FP8, never a bug in the port.
+was always FP8-without-FP8, never a bug in the port. (Per-model feasibility is
+in the [Models table](#models) above.)
 
-| Model          | upstream FP8 | runs correctly on Mac? |
-|----------------|:------------:|:----------------------:|
-| `evo2_7b`      | off          | yes (bf16 native)      |
-| `evo2_7b_base` | off          | yes (bf16 native)      |
-| `evo2_1b_base` | **on**       | no — FP8-degraded      |
-| `evo2_20b/40b` | **on**       | no — FP8 + multi-GPU   |
-
-Running an FP8-required model (1B/20B/40B) now prints an explicit warning that
-the result will be degraded and points you at `evo2_7b_base`.
+Running an FP8-required model (1B/20B/40B) prints an explicit warning that the
+result will be degraded and points you at `evo2_7b_base`.
 
 > The 7B-8k checkpoint is ~15 GB and needs ~16 GB+ of unified memory; it fits
 > on a 32 GB Mac comfortably and is tight on 16–18 GB. On an 18 GB Mac the
@@ -255,6 +291,9 @@ with `# evo2Mac:` comments.
   first use.
 - It does **not** train / fine-tune. Inference only.
 - It does **not** make 20B/40B run on Mac. Those need Hopper GPUs.
+- It does **not** give accurate predictions from FP8-trained checkpoints
+  (`evo2_1b_base`, 20B, 40B) — without Transformer Engine they run in bf16 and
+  are numerically degraded. Use a 7B-8k model for real inference.
 
 ## Credits
 
