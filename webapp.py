@@ -13,12 +13,16 @@ Features (one tab each):
                    position, plus an optional per-position confidence track.
     - Score      — mean/sum (PLL) log-likelihood of a sequence, optional
                    reverse-complement averaging and BOS prepending.
-    - Variant    — score a wild-type vs a mutant sequence and report the
-                   Δ log-likelihood (evo2's flagship effect-prediction use).
+    - Variant    — zero-shot variant effect: Δ delta-likelihood (variant − ref),
+                   via a full pair or a single-nucleotide (ref+pos+alt) input.
     - Embeddings — extract hidden-state embeddings from a chosen layer;
                    download as .npy.
     - Batch      — paste many sequences or upload a FASTA file and score them
                    all into a sortable table (download as CSV).
+    - Generate   — autoregressive continuation with temperature/top-k/top-p.
+    - BRCA1 VEP  — Evo 2's flagship analysis: zero-shot BRCA1 variant-effect
+                   prediction with AUROC vs the experimental classification.
+    - Gene Completion — prokaryote gene-completion benchmark (% AA recovery).
 
 Every tab shares one model selector and a lazy, cached model loader.
 """
@@ -522,6 +526,110 @@ def action_generate(model_name: str, sequence: str, n_tokens: int,
     )
 
 
+# --- Actions: BRCA1 variant-effect benchmark ---------------------------------
+
+_BRCA1_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notebooks", "brca1")
+
+
+def action_brca1(model_name: str, limit: int, window: int,
+                 progress: gr.Progress = gr.Progress(track_tqdm=True)):
+    """Run Evo 2's flagship BRCA1 zero-shot variant-effect analysis."""
+    xlsx = os.path.join(_BRCA1_DIR, "41586_2018_461_MOESM3_ESM.xlsx")
+    chr17 = os.path.join(_BRCA1_DIR, "GRCh37.p13_chr17.fna.gz")
+    if not (os.path.exists(xlsx) and os.path.exists(chr17)):
+        return "BRCA1 data not found under notebooks/brca1/.", None, None
+    m, merr = _require_model(model_name)
+    if merr:
+        return merr, None, None
+
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
+    import importlib
+    bv = importlib.import_module("brca1_vep")
+
+    progress(0.1, desc="Loading BRCA1 variants + chr17 ...")
+    df = bv.load_variants(int(limit))
+    chrom = bv.load_chr17()
+    refs, vars_, idx = bv.windows(df, chrom, int(window))
+    valid = [i for i, v in enumerate(vars_) if v is not None]
+    if not valid:
+        return "No usable variants (reference mismatch?).", None, None
+
+    progress(0.4, desc=f"Scoring {len(refs)} ref windows ...")
+    import numpy as _np
+    ref_scores = _np.array(m.score_sequences(refs, batch_size=1))
+    progress(0.7, desc=f"Scoring {len(valid)} variant windows ...")
+    var_scores = _np.array(m.score_sequences([vars_[i] for i in valid], batch_size=1))
+    deltas = var_scores - ref_scores[[idx[i] for i in valid]]
+    is_lof = _np.array([df.iloc[i]["cls"] == "LOF" for i in valid])
+    auroc = bv.auroc(deltas, is_lof)
+
+    rows = []
+    for k, i in enumerate(valid):
+        r = df.iloc[i]
+        rows.append({"variant": f"{r['ref']}{int(r['pos'])}{r['alt']}",
+                     "class": r["cls"], "delta_score": round(float(deltas[k]), 4)})
+    table = pd.DataFrame(rows).sort_values("delta_score", ignore_index=True)
+    msg = (
+        f"BRCA1 zero-shot VEP on {m.device} — {len(valid)} variants "
+        f"({int(is_lof.sum())} LOF / {int((~is_lof).sum())} FUNC-INT)\n"
+        f"mean Δ — LOF: {deltas[is_lof].mean():+.4f}   FUNC/INT: {deltas[~is_lof].mean():+.4f}\n"
+        f"AUROC (lower Δ predicts loss-of-function): {auroc:.3f}\n\n"
+        f"Lower delta-likelihood = more likely to disrupt BRCA1 function. Upstream "
+        f"reports ~0.9+ AUROC on the 7B at full 8K; a smaller window/sample scores lower."
+    )
+    plot_df = pd.DataFrame({"class": ["LOF", "FUNC/INT"],
+                            "mean delta": [float(deltas[is_lof].mean()),
+                                           float(deltas[~is_lof].mean())]})
+    return msg, table, plot_df
+
+
+# --- Actions: gene completion benchmark --------------------------------------
+
+def action_gene_completion(model_name: str, max_gen: int, temperature: float,
+                           progress: gr.Progress = gr.Progress(track_tqdm=True)):
+    """Run the prokaryote gene-completion benchmark (% amino-acid recovery)."""
+    m, merr = _require_model(model_name)
+    if merr:
+        return merr, None
+
+    import sys as _sys, csv as _csv, importlib
+    gc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "scripts", "gene_completion")
+    _sys.path.insert(0, gc_dir)
+    rp = importlib.import_module("run_prokaryote")
+    genes = os.path.join(gc_dir, "data", "prokaryote_genes.csv")
+    rows = list(_csv.DictReader(open(genes)))
+    aligner = rp.make_aligner()
+
+    out_rows, recs = [], []
+    for n, r in enumerate(rows):
+        progress((n + 0.5) / len(rows), desc=f"Completing {r['gene']} ...")
+        g = "".join(r["genomic_sequence"].split()).upper()
+        ref_aa = r["reference_protein"].rstrip("*")
+        cs = int(r["cds_start"])
+        take_aa = round((len(g) - cs) / 3.0 * rp.PROMPT_FRACTION)
+        take_nt = take_aa * 3
+        prompt = (g[max(0, cs - rp.UPSTREAM_LEN):cs] + g[cs:cs + take_nt])[-1024:]
+        gen = m.generate(prompt_seqs=[prompt], n_tokens=int(max_gen),
+                         temperature=float(temperature), top_k=4,
+                         cached_generation=True, verbose=0).sequences[0]
+        q = rp.translate_dna(g[cs:cs + take_nt] + gen)
+        rec = rp.recovery_after(q, ref_aa, take_aa, aligner)
+        recs.append(rec)
+        out_rows.append({"gene": r["gene"], "organism": r["organism"],
+                         "AA recovery %": round(rec, 1)})
+    mean = sum(recs) / len(recs)
+    table = pd.DataFrame(out_rows)
+    msg = (
+        f"Gene completion (prokaryote panel) on {m.device}\n"
+        f"mean AA recovery: {mean:.1f}%   (paper: 1B 64.9 · 7B 78.7 · 20B 90.9)\n\n"
+        f"Each gene is prompted with ~1 kb upstream + 30% of its CDS; the "
+        f"completion is translated and aligned to the reference protein."
+    )
+    return msg, table
+
+
 # --- UI -----------------------------------------------------------------------
 
 REDUCE_CHOICES = [("mean (per-base avg)", "mean"), ("sum (PLL)", "sum")]
@@ -612,8 +720,9 @@ with gr.Blocks(title="evo2Mac", theme=THEME, css=CSS) as demo:
         with gr.Row():
             gr.Markdown(
                 f"# 🧬 evo2Mac\n"
-                f"Run **Evo 2** genome models locally on Apple Silicon — "
-                f"forward pass, scoring, variant effects, embeddings & generation. "
+                f"Run **Evo 2** genome models locally on Apple Silicon — forward "
+                f"pass, scoring, variant effects, embeddings, batch, generation, "
+                f"**BRCA1 VEP** & the **gene-completion** benchmark. "
                 f"_{_device_info()}._"
             )
             with gr.Column(min_width=180, scale=0):
@@ -770,6 +879,49 @@ with gr.Blocks(title="evo2Mac", theme=THEME, css=CSS) as demo:
         gen_out = gr.Textbox(label="Result", interactive=False, lines=14)
         gen_btn.click(action_generate, inputs=[model_dd, seq_gen, n_tok, temp, tk, tp],
                       outputs=[gen_out])
+
+    # --- BRCA1 VEP (flagship application) ---
+    with gr.Tab("BRCA1 VEP"):
+        gr.Markdown(
+            "**Evo 2's flagship application** — zero-shot prediction of *BRCA1* "
+            "variant effects (Findlay et al. 2018 saturation-mutagenesis set). "
+            "Scores each variant's Δ delta-likelihood and reports AUROC against "
+            "the experimental loss-of-function classification. Uses the bundled "
+            "chr17 reference + variant table; slow on MPS, so start small."
+        )
+        with gr.Row():
+            brca_limit = gr.Slider(10, 500, value=40, step=10,
+                                   label="variants to score (stratified sample)")
+            brca_window = gr.Slider(512, 8192, value=1024, step=512,
+                                    label="context window (bp)")
+        brca_btn = gr.Button("Run BRCA1 variant-effect analysis", variant="primary")
+        brca_out = gr.Textbox(label="Result", interactive=False, lines=6)
+        brca_plot = gr.BarPlot(x="class", y="mean delta",
+                               title="mean Δ-likelihood by class (lower = disruptive)",
+                               height=220)
+        brca_table = gr.Dataframe(label="Per-variant delta scores", interactive=False,
+                                  wrap=True)
+        brca_btn.click(action_brca1, inputs=[model_dd, brca_limit, brca_window],
+                       outputs=[brca_out, brca_table, brca_plot])
+
+    # --- Gene Completion benchmark ---
+    with gr.Tab("Gene Completion"):
+        gr.Markdown(
+            "**Gene completion benchmark** (prokaryote/archaea panel from the Evo 2 "
+            "paper). Each gene is prompted with ~1 kb upstream + 30% of its coding "
+            "region; the model completes the CDS, which is translated and aligned to "
+            "the reference protein for **% amino-acid recovery**. 4 genes "
+            "(ftsZ, secY, dnaK, gyrA)."
+        )
+        with gr.Row():
+            gc_maxgen = gr.Slider(100, 1200, value=400, step=50,
+                                  label="tokens to generate per gene")
+            gc_temp = gr.Slider(0.05, 1.5, value=0.7, step=0.05, label="temperature")
+        gc_btn = gr.Button("Run gene-completion benchmark", variant="primary")
+        gc_out = gr.Textbox(label="Result", interactive=False, lines=5)
+        gc_table = gr.Dataframe(label="Per-gene AA recovery", interactive=False, wrap=True)
+        gc_btn.click(action_gene_completion, inputs=[model_dd, gc_maxgen, gc_temp],
+                     outputs=[gc_out, gc_table])
 
     gr.Markdown(
         "---\n"
