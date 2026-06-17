@@ -24,10 +24,17 @@ from evo2.scoring import score_sequences, score_sequences_rc
 from evo2.utils import MODEL_NAMES, HF_MODEL_NAME_MAP, CONFIG_MAP
 
 # FP8-trained checkpoints where e4m3 emulation measurably recovers accuracy on
-# Mac (no Transformer Engine), so it's applied by default. The 7B checkpoints
+# Mac (no Transformer Engine), so it's applied by default. The 7B-8k checkpoints
 # are bf16-robust (emulation is a ~±0.05pp no-op) and are deliberately excluded.
-# 20B/40B don't run on Apple Silicon at all (TE + Hopper runtime).
-FP8_EMULATION_DEFAULT_MODELS = {"evo2_1b_base"}
+# 20B/40B are FP8-trained too — emulation applies — but they're memory-bound on
+# Apple Silicon (see _ram_preflight): 20B ~40 GB weights, 40B ~80 GB.
+FP8_EMULATION_DEFAULT_MODELS = {"evo2_1b_base", "evo2_20b", "evo2_40b", "evo2_40b_base"}
+
+# Rough bf16 weight footprint (GB) per model, for a memory pre-flight warning.
+_APPROX_WEIGHT_GB = {
+    "evo2_1b_base": 4, "evo2_7b_base": 14, "evo2_7b": 14, "evo2_7b_262k": 14,
+    "evo2_7b_microviridae": 14, "evo2_20b": 40, "evo2_40b": 80, "evo2_40b_base": 80,
+}
 
 
 def _get_default_device() -> str:
@@ -60,6 +67,11 @@ class Evo2:
                 f'Invalid model name {model_name}. Should be one of: '
                 f'{", ".join(MODEL_NAMES)}.'
             )
+
+        # Mac/MPS memory pre-flight: warn before a big download/load that the
+        # weights may not fit. Loading proceeds (it may still work on a larger
+        # Mac, or with truncation); we just don't pretend the limit isn't there.
+        self._ram_preflight(model_name)
 
         config_path = CONFIG_MAP[model_name]
 
@@ -116,6 +128,38 @@ class Evo2:
                         )
             except Exception as e:  # never block model load on emulation
                 warnings.warn(f"FP8 emulation could not be applied: {e}")
+
+    @staticmethod
+    def _ram_preflight(model_name):
+        """Warn (don't block) when a model's bf16 weights likely won't fit in
+        unified memory on Mac. CUDA users are unaffected."""
+        if torch.cuda.is_available():
+            return
+        weights_gb = _APPROX_WEIGHT_GB.get(model_name)
+        if not weights_gb:
+            return
+        try:
+            total_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / (1024 ** 3)
+        except (ValueError, OSError):
+            return
+        # The OS and other apps hold a chunk of unified memory; only ~80% is
+        # realistically available to the model process.
+        usable_gb = total_gb * 0.8
+        # A forward pass needs activation memory on top of the weights; treat
+        # ~1.3x weights as the practical floor for an 8K-context pass.
+        needed = weights_gb * 1.3
+        if weights_gb > usable_gb:
+            warnings.warn(
+                f"'{model_name}' weights are ~{weights_gb} GB but this machine has "
+                f"~{total_gb:.0f} GB of memory — it will not fit and loading will "
+                f"likely fail (MPS OOM). Use a 7B-8k or 1B checkpoint, or a larger Mac."
+            )
+        elif needed > usable_gb:
+            warnings.warn(
+                f"'{model_name}' weights are ~{weights_gb} GB vs ~{total_gb:.0f} GB "
+                f"of memory — loading may succeed but an 8K-context forward pass can "
+                f"OOM on MPS. Cap context (e.g. --max-len 2048) and expect it to be slow."
+            )
 
     @staticmethod
     def _resolve_checkpoint_path(model_name, local_path):
@@ -286,24 +330,15 @@ class Evo2:
             config = dotdict(config)
 
             if config.get("use_fp8_input_projections", False) and not HAS_TE:
-                # Mac/MPS: extend bf16 fallback to 1B too. 20B/40B still raise.
-                is_te_optional = any(
-                    s in (model_name or "") or s in (config_path or "")
-                    for s in ("7b", "1b")
+                # Mac/MPS (no Transformer Engine): load with bf16 projections.
+                # For FP8-trained checkpoints the e4m3 emulation re-applies the
+                # FP8 numerics after load (see __init__). This works for every
+                # model — the only remaining limit is memory, surfaced below.
+                warnings.warn(
+                    "Transformer Engine not installed. Loading bf16 projections; "
+                    "FP8-trained checkpoints get e4m3 emulation applied after load."
                 )
-                if is_te_optional:
-                    warnings.warn(
-                        "Transformer Engine not installed. "
-                        "Falling back to bf16 projections (use_fp8_input_projections=False). "
-                    )
-                    config.use_fp8_input_projections = False
-                else:
-                    raise ImportError(
-                        f"Model '{model_name or config_path}' requires FP8 via Transformer Engine, "
-                        f"which is not installed.\n"
-                        f"Install with: pip install transformer_engine\n"
-                        f"For inference without TE, use any 7b or 1b model"
-                    )
+                config.use_fp8_input_projections = False
 
             model = StripedHyena(config)
             load_checkpoint(model, local_path)
@@ -372,20 +407,13 @@ class Evo2:
         global_config = dotdict(config, Loader=yaml.FullLoader)
 
         if global_config.get("use_fp8_input_projections", False) and not HAS_TE:
-            # Mac/MPS: extend bf16 fallback to 1B too.
-            if any(s in (model_name or "") for s in ("7b", "1b")):
-                warnings.warn(
-                    "Transformer Engine not installed. "
-                    "Falling back to bf16 projections (use_fp8_input_projections=False). "
-                )
-                global_config.use_fp8_input_projections = False
-            else:
-                raise ImportError(
-                    f"Model '{model_name}' requires FP8 via Transformer Engine, "
-                    f"which is not installed.\n"
-                    f"Install with: pip install transformer_engine\n"
-                    f"For inference without TE, use any 7b or 1b model"
-                )
+            # Mac/MPS (no Transformer Engine): load bf16 projections for every
+            # model; e4m3 emulation re-applies FP8 numerics after load.
+            warnings.warn(
+                "Transformer Engine not installed. Loading bf16 projections; "
+                "FP8-trained checkpoints get e4m3 emulation applied after load."
+            )
+            global_config.use_fp8_input_projections = False
 
         model = StripedHyena(global_config)
         load_checkpoint(model, weights_path)

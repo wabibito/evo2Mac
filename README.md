@@ -69,16 +69,20 @@ analysis and measured numbers.)
 | `evo2_7b_base`        | ~14 GB      | off          | ✓ bf16-native; **validated** (default) |
 | `evo2_7b_262k`        | ~14 GB      | off          | ✓ bf16-native (262K context)           |
 | `evo2_7b_microviridae`| ~14 GB      | off          | ✓ bf16-native                          |
-| `evo2_1b_base`        | ~4 GB       | **on**       | ✗ loads, but FP8-degraded (~random)    |
-| `evo2_20b`            | ~40 GB      | **on**       | ✗ FP8 + Hopper + multi-GPU             |
-| `evo2_40b` / `_base`  | ~80 GB      | **on**       | ✗ FP8 + Hopper + multi-GPU             |
+| `evo2_1b_base`        | ~4 GB       | **on**       | ✓ FP8 e4m3 **emulated** (~75% acc)     |
+| `evo2_20b`            | ~40 GB      | **on**       | ~ emulated; memory-tight (≥48 GB Mac)  |
+| `evo2_40b` / `_base`  | ~80 GB      | **on**       | ~ emulated; needs ≥96 GB unified mem   |
 
 Notes:
-- **`evo2_1b_base` loads and is great for plumbing/API testing, but its
-  predictions are FP8-degraded** — do not trust its loss/accuracy. Use a 7B-8k
-  model for real inference.
-- The 20B/40B exclusion is a *runtime* constraint (Transformer Engine + Hopper),
-  not just memory — they won't run on Apple Silicon at all.
+- **`evo2_1b_base` runs with FP8 e4m3 emulation by default** on Mac — recovering
+  it from near-random (bf16) to ~75% forward accuracy / ~74% generation identity
+  vs the H100 reference. Still a step below the bf16-native 7B; use a 7B-8k model
+  when you want the most accurate results. Opt out with `EVO2MAC_FP8_EMULATION=0`.
+- **20B/40B are now code-enabled** (FP8 emulation applies, configs are Mac-patched
+  to drop the Transformer Engine / Hopper / flash-attn dependencies). The only
+  remaining barrier is **memory**: 20B needs ~40 GB of unified memory (tight on a
+  64 GB Mac — an 8K forward pass can OOM), and 40B needs ~80 GB of weights, so it
+  will not load on a 64 GB machine. `Evo2()` prints a memory pre-flight warning.
 - **Memory:** the 7B (~14 GB weights) loads on a 16–18 GB Mac, but a full
   8K-context forward pass overruns the MPS allocation watermark. Cap the context
   with `--max-len 2048` (and optionally `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0`)
@@ -276,8 +280,9 @@ bf16-native 7B reproduces upstream, the FP8-trained 1B does not. The "drift"
 was always FP8-without-FP8, never a bug in the port. (Per-model feasibility is
 in the [Models table](#models) above.)
 
-Running an FP8-required model (1B/20B/40B) prints an explicit warning that the
-result will be degraded and points you at `evo2_7b_base`.
+FP8-trained models (1B/20B/40B) load with e4m3 emulation applied automatically;
+a 7B-8k checkpoint is still the most accurate. Large models also print a memory
+pre-flight warning when their weights are unlikely to fit.
 
 ### Experimental: FP8 (e4m3) emulation recovers most of the lost 1B accuracy
 
@@ -379,10 +384,13 @@ with `# evo2Mac:` comments.
 - It does **not** redistribute model weights — those come from HuggingFace on
   first use.
 - It does **not** train / fine-tune. Inference only.
-- It does **not** make 20B/40B run on Mac. Those need Hopper GPUs.
-- It does **not** give accurate predictions from FP8-trained checkpoints
-  (`evo2_1b_base`, 20B, 40B) — without Transformer Engine they run in bf16 and
-  are numerically degraded. Use a 7B-8k model for real inference.
+- It does **not** add memory. 20B/40B are code-enabled (FP8 emulation + Mac-patched
+  configs), but 20B is tight on a 64 GB Mac and 40B (~80 GB weights) needs a
+  machine with ≥96 GB of unified memory. `Evo2()` warns before you hit the wall.
+- FP8-trained checkpoints (`evo2_1b_base`, 20B, 40B) run with e4m3 **emulation**,
+  which recovers most of the accuracy lost without Transformer Engine — but it's
+  emulation, ~5 pp shy of the H100 reference. Use a bf16-native 7B-8k model when
+  you want the closest match to upstream.
 
 ## Credits
 
