@@ -102,8 +102,16 @@ def read_prompts() -> list[str]:
     return seqs
 
 
-def forward_pass(model, sequences, max_seqs: int | None) -> tuple[list[float], list[float]]:
-    """Replicates upstream test_forward_pass but device-aware."""
+def forward_pass(model, sequences, max_seqs: int | None,
+                 max_len: int | None = None) -> tuple[list[float], list[float]]:
+    """Replicates upstream test_forward_pass but device-aware.
+
+    max_len truncates each prompt to that many bases before tokenizing. This
+    caps the forward-pass activation memory, which is what blows MPS past its
+    watermark on the 7B at full 8K context on a <=18GB Mac. Truncation changes
+    the absolute loss/acc vs the 8K reference, but is applied identically to
+    every device, so CPU-vs-MPS comparisons stay valid.
+    """
     import torch
     import torch.nn.functional as F
 
@@ -114,6 +122,8 @@ def forward_pass(model, sequences, max_seqs: int | None) -> tuple[list[float], l
     accuracies: list[float] = []
 
     for i, seq in enumerate(sequences, 1):
+        if max_len is not None:
+            seq = seq[:max_len]
         ids = torch.tensor(model.tokenizer.tokenize(seq), dtype=torch.int).to(model.device)
         with torch.inference_mode():
             out = model.model.forward(ids.unsqueeze(0))
@@ -163,7 +173,7 @@ def force_device(model, device: str) -> None:
             module.t = None
 
 
-def run_on_device(model, seqs, max_seqs, device: str):
+def run_on_device(model, seqs, max_seqs, device: str, max_len: int | None = None):
     """Force `device`, run the forward pass, return (mean_loss, mean_acc_pct,
     per-seq losses, per-seq accs)."""
     import numpy as np
@@ -177,13 +187,13 @@ def run_on_device(model, seqs, max_seqs, device: str):
 
     print(f"\nrunning forward pass on {device} ...")
     t = time.time()
-    accs, losses = forward_pass(model, seqs, max_seqs)
+    accs, losses = forward_pass(model, seqs, max_seqs, max_len)
     elapsed = time.time() - t
     print(f"  {device} forward-pass time: {elapsed:.1f}s")
     return float(np.mean(losses)), float(np.mean(accs) * 100), losses, accs, elapsed
 
 
-def compare_devices(model, seqs, max_seqs) -> int:
+def compare_devices(model, seqs, max_seqs, max_len: int | None = None) -> int:
     """Run the same prompts on CPU and MPS and report the drift between them."""
     import torch
 
@@ -191,8 +201,8 @@ def compare_devices(model, seqs, max_seqs) -> int:
         print("FAIL: --compare-devices needs MPS, which is not available here.")
         return 2
 
-    cpu = run_on_device(model, seqs, max_seqs, "cpu")
-    mps = run_on_device(model, seqs, max_seqs, "mps")
+    cpu = run_on_device(model, seqs, max_seqs, "cpu", max_len)
+    mps = run_on_device(model, seqs, max_seqs, "mps", max_len)
 
     cpu_loss, cpu_acc, cpu_losses, cpu_accs, cpu_t = cpu
     mps_loss, mps_acc, mps_losses, mps_accs, mps_t = mps
@@ -237,6 +247,11 @@ def main() -> int:
                     choices=sorted(UPSTREAM_REFERENCE))
     ap.add_argument("--max-seqs", type=int, default=None,
                     help="cap number of prompts (default: all)")
+    ap.add_argument("--max-len", type=int, default=None,
+                    help="truncate each prompt to N bases. Caps forward-pass "
+                         "activation memory — needed to fit the 7B on MPS with "
+                         "<=18GB RAM (try 2048). Changes absolute loss/acc vs the "
+                         "8K reference, but is applied identically to every device.")
     ap.add_argument("--device", default=None,
                     help="override device (mps/cpu/cuda:0)")
     ap.add_argument("--compare-devices", action="store_true",
@@ -302,12 +317,15 @@ def main() -> int:
         seqs = seqs[: args.max_seqs]
     print(f"  {len(seqs)} prompts\n")
 
+    if args.max_len:
+        print(f"  truncating prompts to {args.max_len} bases (memory cap)\n")
+
     if args.compare_devices:
-        return compare_devices(model, seqs, args.max_seqs)
+        return compare_devices(model, seqs, args.max_seqs, args.max_len)
 
     print("running forward pass on each prompt ...")
     t1 = time.time()
-    accs, losses = forward_pass(model, seqs, args.max_seqs)
+    accs, losses = forward_pass(model, seqs, args.max_seqs, args.max_len)
     print(f"\ntotal forward-pass time: {time.time() - t1:.1f}s")
 
     mean_loss = float(np.mean(losses))
