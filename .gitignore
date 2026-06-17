@@ -46,3 +46,7 @@ activations_debug.log
 .env
 .envrc
 local_config.yml
+
+# webui control script runtime
+.webui.pid
+webui.log

@@ -101,7 +101,12 @@ cat <<EOF
 ------------------------------------------------------------
 evo2Mac setup complete.
 
-Activate the env with:
+Launch the web UI (recommended) — no need to activate the env first:
+
+  ./webui.sh start      # opens http://localhost:7860
+  ./webui.sh stop       # when you're done   (also: status, restart, logs)
+
+Or use the CLI. Activate the env with:
 
   conda activate $ENV_NAME
 

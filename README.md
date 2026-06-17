@@ -90,8 +90,12 @@ cd evo2Mac
 ./install.sh                                          # one-shot setup
 conda activate evo2Mac
 
-# Web UI (recommended):
-python webapp.py                                      # opens http://localhost:7860
+# Web UI (recommended) — managed start/stop, opens http://localhost:7860:
+./webui.sh start                                      # launch in the background
+./webui.sh status                                     # is it up? what URL?
+./webui.sh logs                                       # tail the server log
+./webui.sh stop                                       # shut it down
+# (override the port: EVO2MAC_PORT=8000 ./webui.sh start)
 
 # Or CLI (use a 7B-8k model — it's the bf16-native, validated one):
 python scripts/smoke_test.py --model evo2_7b_base          # one forward pass
