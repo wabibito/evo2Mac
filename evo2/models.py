@@ -23,6 +23,14 @@ from vortex.model.utils import dotdict, print_rank_0, load_checkpoint
 from evo2.scoring import score_sequences, score_sequences_rc
 from evo2.utils import MODEL_NAMES, HF_MODEL_NAME_MAP, CONFIG_MAP
 
+
+def _get_default_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda:0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
 class Evo2:
     def __init__(self, model_name: str = MODEL_NAMES[1], local_path: str = None):
         """
@@ -53,8 +61,22 @@ class Evo2:
             self.model = self.load_evo2_model(None, config_path, local_path)
         else:
             self.model = self.load_evo2_model(model_name, config_path)
-        
+
         self.tokenizer = CharLevelTokenizer(512)
+
+        # Mac/MPS: Vortex handles CUDA placement itself. When CUDA is not
+        # available, route the model and inputs to MPS (or CPU as a last resort).
+        self.device = _get_default_device()
+        if not torch.cuda.is_available():
+            self.model = self.model.to(self.device)
+            # StripedHyena tracks per-block placement in a plain dict that
+            # .to() doesn't migrate. The final forward does
+            # `x = x.to(self.block_idx_to_device[0])` before the unembed,
+            # which would yank x back to CPU. Rewrite the dict so every
+            # entry points at our actual device.
+            if hasattr(self.model, "block_idx_to_device"):
+                for k in list(self.model.block_idx_to_device):
+                    self.model.block_idx_to_device[k] = self.device
     
     def forward(
         self,
@@ -98,10 +120,19 @@ class Evo2:
                 handles.append(layer.register_forward_hook(hook_fn(name)))
         
         try:
-            # Original forward pass
+            # Mac/MPS: make sure inputs live on the same device as the model.
+            if input_ids.device != torch.device(self.device):
+                input_ids = input_ids.to(self.device)
+
             with torch.no_grad():
                 logits = self.model.forward(input_ids)
-            
+
+            # On MPS/CPU, StripedHyena.forward returns
+            # (logits, inference_params_dict). On CUDA the Vortex hooks
+            # collapse this to just the tensor. Normalize.
+            if isinstance(logits, tuple):
+                logits = logits[0]
+
             if return_embeddings:
                 return logits, embeddings
             return logits, None
@@ -128,6 +159,7 @@ class Evo2:
             batch_size=batch_size,
             prepend_bos=prepend_bos,
             reduce_method=reduce_method,
+            device=self.device,
         )
 
         with torch.no_grad():
@@ -171,6 +203,7 @@ class Evo2:
                 cached_generation=cached_generation,
                 verbose=verbose,
                 force_prompt_threshold=force_prompt_threshold,
+                device=self.device,
             )
             return output
 
@@ -196,8 +229,12 @@ class Evo2:
             config = dotdict(config)
 
             if config.get("use_fp8_input_projections", False) and not HAS_TE:
-                is_7b_model = "7b" in (model_name or "") or "7b" in (config_path or "")
-                if is_7b_model:
+                # Mac/MPS: extend bf16 fallback to 1B too. 20B/40B still raise.
+                is_te_optional = any(
+                    s in (model_name or "") or s in (config_path or "")
+                    for s in ("7b", "1b")
+                )
+                if is_te_optional:
                     warnings.warn(
                         "Transformer Engine not installed. "
                         "Falling back to bf16 projections (use_fp8_input_projections=False). "
@@ -208,7 +245,7 @@ class Evo2:
                         f"Model '{model_name or config_path}' requires FP8 via Transformer Engine, "
                         f"which is not installed.\n"
                         f"Install with: pip install transformer_engine\n"
-                        f"For inference without TE, use any 7b model: Evo2('evo2_7b')"
+                        f"For inference without TE, use any 7b or 1b model"
                     )
 
             model = StripedHyena(config)
@@ -278,7 +315,8 @@ class Evo2:
         global_config = dotdict(config, Loader=yaml.FullLoader)
 
         if global_config.get("use_fp8_input_projections", False) and not HAS_TE:
-            if "7b" in (model_name or ""):
+            # Mac/MPS: extend bf16 fallback to 1B too.
+            if any(s in (model_name or "") for s in ("7b", "1b")):
                 warnings.warn(
                     "Transformer Engine not installed. "
                     "Falling back to bf16 projections (use_fp8_input_projections=False). "
@@ -289,7 +327,7 @@ class Evo2:
                     f"Model '{model_name}' requires FP8 via Transformer Engine, "
                     f"which is not installed.\n"
                     f"Install with: pip install transformer_engine\n"
-                    f"For inference without TE, use any 7b model: Evo2('evo2_7b')"
+                    f"For inference without TE, use any 7b or 1b model"
                 )
 
         model = StripedHyena(global_config)

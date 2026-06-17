@@ -1,47 +1,69 @@
-Copyright 2024 Arc Institute. All rights reserved
-Copyright 2024 Michael Poli. All rights reserved
-Copyright 2024 Stanford University. All rights reserved
+evo2Mac
+=======
+A macOS / Apple Silicon (MPS) port of Evo 2 for local inference of the
+Mac-feasible model sizes (1B and 7B variants).
 
-This project incorporates and modifies the components below:
+This project is licensed under the Apache License, Version 2.0
+(see LICENSE).
 
+Attribution
+-----------
 
-- Added training and inference support for Hyena2
-- Scaled model training (up to 40B) and context windows (up to 1M)
-- Biological/genomic inference and generation evals/tasks 
+This project is a derivative of:
 
-See AUTHORS file for list of contributing authors.
+  - Evo 2 (https://github.com/arcinstitute/evo2)
+    Copyright 2024 Arc Institute, Michael Poli, Stanford University.
+    Licensed under the Apache License, Version 2.0.
 
-See LICENSE file for software license. This software is licensed under the Apache License, Version 2.0.
-======================================================================
+It incorporates ideas and patches documented by:
 
-StripedHyena
-Copyright 2023-2024 Together
-Project URL: https://github.com/togethercomputer/stripedhyena
+  - evo2-mac (https://github.com/hakyimlab/evo2-mac)
+    A separate macOS compatibility effort by the Im Lab (University of
+    Chicago). Their compatibility notes
+    (notebooks/compatibility-mps.md, notebooks/plan-compatibility-mps.md)
+    informed the device-aware patches in this repo.
 
-This project includes software developed at Together for deep signal processing, hybrid architecture composed of rotary (grouped) attention and gated convolutions arranged in Hyena blocks, with improved scaling over decoder-only Transformers.
+Upstream Evo 2 itself incorporates components from StripedHyena
+(Together), GPT-NeoX (EleutherAI), Megatron-LM (NVIDIA), and DeepSpeed
+(Microsoft). See NOTICE.upstream for the full upstream attribution.
 
-======================================================================
+Mac-specific changes in this repo
+---------------------------------
 
-GPT-NeoX
-Copyright 2021-2024 EleutherAI and contributors 
-Project URL: https://github.com/EleutherAI/gpt-neox 
+1. Configs (evo2/configs/*.yml)
+   - use_flash_attn:               True -> False  (SDPA fallback works on MPS)
+   - use_fp8_input_projections:    True -> False  (Transformer Engine is CUDA-only)
 
-This project includes software developed at EleutherAI for large-scale language model training and inference. 
+2. evo2/models.py
+   - Device auto-detection (CUDA > MPS > CPU).
+   - Model moved to detected device; inputs moved to model device.
+   - Unpacks (logits, inference_params_dict) tuple from StripedHyena.
+   - Expands FP8 fallback to include 1B model name (not just 7B).
 
-======================================================================
+3. evo2/scoring.py
+   - Device auto-detection helper.
+   - device= defaults to None and is resolved at call time.
 
-Megatron-LM
-Copyright 2019-2024 NVIDIA Corporation
-Project URL: https://github.com/NVIDIA/Megatron-LM
+4. patches/patch_vortex.py (runtime patch applied to the installed `vtx`
+   package, which exposes `vortex.model.*`)
+   - engine.py:     torch.autocast("cuda")          -> device-aware autocast
+   - engine.py:     torch.fft.fft().repeat()        -> .unsqueeze().expand()
+                    (MPS doesn't support .repeat() on complex tensors)
+   - generation.py: torch.cuda.memory_allocated(d)  -> torch.memory_allocated(d)
+   - model.py:      torch.cuda.empty_cache()        -> device-aware empty_cache
 
-This project includes software developed at NVIDIA Corporation for large-scale transformer model training.
+Models known to run on Mac (MPS)
+--------------------------------
 
-======================================================================
+  evo2_1b_base          ~4 GB    works on 16 GB Macs
+  evo2_7b_base          ~14 GB   needs 32 GB+ unified memory
+  evo2_7b               ~14 GB   needs 32 GB+ unified memory
+  evo2_7b_262k          ~14 GB   needs 32 GB+ unified memory
+  evo2_7b_microviridae  ~14 GB   needs 32 GB+ unified memory
 
-DeepSpeed
-Copyright 2020-2024 Microsoft Corporation
-Project URL: https://github.com/microsoft/DeepSpeed
+Models that cannot run on Mac
+-----------------------------
 
-This project includes software developed at Microsoft Corporation as part of the DeepSpeed deep learning optimization library.
-
-======================================================================
+  evo2_20b, evo2_40b, evo2_40b_base
+    Require FP8 via NVIDIA Transformer Engine (Hopper-class GPUs only).
+    This is a hardware/runtime constraint, not just a memory one.

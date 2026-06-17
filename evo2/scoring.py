@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 from Bio.Seq import Seq
 from tqdm import tqdm
 
@@ -7,16 +7,26 @@ import torch
 from vortex.model.model import StripedHyena
 
 
+def _get_default_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda:0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def prepare_batch(
         seqs: List[str],
         tokenizer: object,
         prepend_bos: bool = False,
-        device: str = 'cuda:0'
+        device: Optional[str] = None,
 ) -> Tuple[torch.Tensor, List[int]]:
     """
     Takes in a list of sequences, tokenizes them, and puts them in a tensor batch.
     If the sequences have differing lengths, then pad up to the maximum sequence length.
     """
+    if device is None:
+        device = _get_default_device()
     seq_lengths = [ len(seq) for seq in seqs ]
     max_seq_length = max(seq_lengths)
 
@@ -64,9 +74,11 @@ def _score_sequences(
         tokenizer: object,
         prepend_bos: bool = False,
         reduce_method: str = 'mean',
-        device: str = 'cuda:0',
+        device: Optional[str] = None,
 ) -> List[float]:
     """Helper function to score a list of sequences based on their logprobs."""
+    if device is None:
+        device = _get_default_device()
     input_ids, seq_lengths = prepare_batch(seqs, tokenizer, device=device, prepend_bos=prepend_bos)
     assert len(seq_lengths) == input_ids.shape[0]
 
@@ -96,7 +108,7 @@ def score_sequences(
         batch_size: int = None,
         prepend_bos: bool = False,
         reduce_method: str = 'mean',
-        device: str = 'cuda:0',
+        device: Optional[str] = None,
 ) -> List[float]:
     """
     Computes the model log-likelihood scores for sequences in `seqs`.
@@ -106,6 +118,8 @@ def score_sequences(
     Returns a list of scalar scores corresponding to the reduced log-likelihoods for
     each sequence.
     """
+    if device is None:
+        device = _get_default_device()
     if batch_size is None:
         batch_size = len(seqs)
 
@@ -131,7 +145,7 @@ def score_sequences_rc(
         batch_size: int,
         prepend_bos: bool = False,
         reduce_method: str = 'mean',
-        device: str = 'cuda:0',
+        device: Optional[str] = None,
 ) -> List[float]:
     """
     Computes the model log-likelihood scores for sequences in `seqs` and for their
@@ -143,6 +157,8 @@ def score_sequences_rc(
     Returns a list of scalar scores corresponding to the reduced log-likelihoods for
     each sequence.
     """
+    if device is None:
+        device = _get_default_device()
     scores = []
     for i in tqdm(range(0, len(seqs), batch_size)):
         batch_seqs = seqs[i:i + batch_size]
@@ -175,7 +191,7 @@ def positional_entropies(
         model: StripedHyena,
         tokenizer: object,
         prepend_bos: bool = False,
-        device: str = 'cuda:0',
+        device: Optional[str] = None,
 ) -> List[np.array]:
     """
     Computes the positional entropies for sequences in `seqs`.
@@ -184,6 +200,8 @@ def positional_entropies(
     corresponding sequence length. Each array contains the per-position entropy
     across the vocab dimension.
     """
+    if device is None:
+        device = _get_default_device()
     input_ids, seq_lengths = prepare_batch(seqs, tokenizer, device=device, prepend_bos=prepend_bos)
     assert len(seq_lengths) == input_ids.shape[0]
 

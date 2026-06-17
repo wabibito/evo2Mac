@@ -38,7 +38,7 @@ interleave: True
 # Layer > 0 nn.identity activation
 evo2_style_activations: True
 
-use_fp8_input_projections: True
+use_fp8_input_projections: False  # evo2Mac: Transformer Engine is CUDA-only
 
 # Legacy options for MP / PP inference
 model_parallel_size: 1
@@ -51,7 +51,7 @@ qkv_proj_bias: False
 max_seqlen: 8192
 max_batch_size: 1
 final_norm: True 
-use_flash_attn: True
+use_flash_attn: False  # evo2Mac: SDPA fallback works on MPS
 use_flash_rmsnorm: False
 use_flash_depthwise: False
 use_flashfft: False
