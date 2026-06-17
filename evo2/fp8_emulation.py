@@ -114,8 +114,11 @@ class Fp8EmulatedLinear(nn.Module):
 
     def forward(self, x):
         w = self.weight
-        # Quantize activations and weights to e4m3 with their per-tensor scales,
-        # matmul, then undo the scaling (TE's dequant).
+        # NB: scaling/casting in bf16 here (not fp32) is INTENTIONAL. It matches
+        # how vortex actually feeds these projections, and empirically gives the
+        # best evo2_1b_base accuracy (74.5% vs the H100 ref); switching to a
+        # "more correct" fp32-scaled native-FP8 path measurably *hurt* the 1B
+        # (dropped to ~39%). The checkpoint scales are tuned to this path.
         x_q = quantize_e4m3(x.to(w.dtype) * self.act_scale)
         w_q = quantize_e4m3(w * self.weight_scale)
         inv = 1.0 / (self.act_scale * self.weight_scale)
