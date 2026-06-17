@@ -151,10 +151,11 @@ def main() -> int:
     print(f"  AGGREGATE over {len(seqs)} prompts vs the H100 reference")
     print("  " + "-" * 60)
     print(f"  reference (H100, FP8):  loss={ref['loss']:.4f}  acc={ref['acc']:.3f}%")
-    print(f"  bf16 fallback:          loss={base_loss:.4f}  acc={base_acc:.2f}%")
-    print(f"  e4m3 emulated:          loss={emu_loss:.4f}  acc={emu_acc:.2f}%")
+    print(f"  bf16 native (no FP8):   loss={base_loss:.4f}  acc={base_acc:.2f}%"
+          f"   (vs H100 Δloss {base_loss - ref['loss']:+.4f}  Δacc {base_acc - ref['acc']:+.2f}pp)")
+    print(f"  e4m3 emulated:          loss={emu_loss:.4f}  acc={emu_acc:.2f}%"
+          f"   (vs H100 Δloss {emu_loss - ref['loss']:+.4f}  Δacc {emu_acc - ref['acc']:+.2f}pp)")
     print(f"  bf16 -> emul:           Δloss={base_loss - emu_loss:+.4f}  Δacc={emu_acc - base_acc:+.2f}pp")
-    print(f"  emul vs H100:           Δloss={emu_loss - ref['loss']:+.4f}  Δacc={emu_acc - ref['acc']:+.2f}pp")
     print("=" * 62)
     if emu_acc > base_acc + 5:
         print("  emulation meaningfully improves accuracy.")
