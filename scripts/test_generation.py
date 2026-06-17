@@ -138,16 +138,20 @@ def main() -> int:
         print("  [emul] generating ...")
         emu = gen_identities(model, seqs, args.n_tokens, args.prompt_cap)
 
-        print("\nper-prompt generation identity (% matching nucleotides):")
+        # Per-prompt diagnostic (bf16 vs emul only); upstream publishes no
+        # per-prompt reference, so H100 is compared at the aggregate mean.
+        print("\nper-prompt diagnostic — generation identity (% matching nt):")
         print(f"  {'prompt':<28} {'bf16':>8} {'e4m3 emul':>10}")
         print("  " + "-" * 50)
         for nm, b, e in zip(names, bf16, emu):
             print(f"  {nm[:28]:<28} {b:7.2f}% {e:9.2f}%")
-        ref = REFERENCE.get(args.model)
         print("  " + "-" * 50)
-        print(f"  {'MEAN':<28} {np.mean(bf16):7.2f}% {np.mean(emu):9.2f}%")
+        bf16_mean, emu_mean = float(np.mean(bf16)), float(np.mean(emu))
+        print(f"  {'MEAN':<28} {bf16_mean:7.2f}% {emu_mean:9.2f}%")
+        ref = REFERENCE.get(args.model)
         if ref is not None:
-            print(f"\n  upstream H100 reference: {ref:.2f}%")
+            print(f"\n  AGGREGATE vs H100 reference ({ref:.2f}%):  "
+                  f"emul Δ {emu_mean - ref:+.2f}pp")
         return 0
 
     fp8 = os.environ.get("EVO2MAC_FP8_EMULATION") == "1"

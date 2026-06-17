@@ -301,25 +301,26 @@ python scripts/validate_fp8_emulation.py              # measures before/after
 python scripts/test_generation.py --model evo2_1b_base  # greedy-gen vs H100 ref
 ```
 
-On `evo2_1b_base`, 4 prompts at full 8K context (forward pass):
+Results are reported as the **aggregate** over upstream's 4 bundled prompts vs
+the single aggregate H100 reference (upstream publishes no per-prompt reference;
+the scripts also print a per-prompt bf16-vs-emul diagnostic). On `evo2_1b_base`
+at full 8K context (forward pass):
 
 ```
-reference (H100, FP8):  loss=0.502   acc=79.6%
+reference (H100, FP8):  loss=0.5020  acc=79.556%
 bf16 fallback:          loss=1.3643  acc=32.63%
-e4m3 emulated:          loss=0.6105  acc=74.51%   (+41.9 pp)
+e4m3 emulated:          loss=0.6105  acc=74.51%   (bf16->emul +41.9pp; vs H100 -5.05pp)
 ```
 
 And on a second, independent axis — greedy generation, prompt the first half and
-match the real continuation (`scripts/test_generation.py`, H100 ref 68.0%):
+match the real continuation (`scripts/test_generation.py --compare-fp8`, H100
+aggregate ref 68.0%): the bf16 fallback sits near the ~30% floor, emulation
+recovers it to the same ~70% ballpark (exact number is sample/length-sensitive,
+so treat it as "near the reference," not a precise match).
 
-```
-bf16 fallback:          33.25% matching nucleotides
-e4m3 emulated:          67.25% matching nucleotides   (Δ -0.75 pp vs reference)
-```
-
-That closes the forward gap from ~47 pp to ~5 pp, and lands generation within
-~1 pp of the reference. The residual is expected — we don't replicate flash-attn
-or the rest of the H100 FP8 path, only the input projections. This is **emulation, not hardware FP8**: on M1–M4 (no FP8 silicon)
+That closes the forward gap from ~47 pp to ~5 pp. The residual is expected — we
+don't replicate flash-attn or the rest of the H100 FP8 path, only the input
+projections. This is **emulation, not hardware FP8**: on M1–M4 (no FP8 silicon)
 there's no speed benefit, the point is accuracy. On an **M5** (native GPU FP8),
 `quantize_e4m3` is the seam to swap for a real FP8 matmul (`torch._scaled_mm`
 once MPS exposes it, or an MLX `mxfp8` kernel) — the per-tensor scales recovered

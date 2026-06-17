@@ -135,8 +135,9 @@ def main() -> int:
     emu = evaluate(model, seqs, args.max_len)
     print(f"  done ({time.time() - t0:.1f}s)")
 
-    # Per-prompt breakdown.
-    print("\nper-prompt (acc% / loss):")
+    # Per-prompt breakdown (bf16 vs emul only; upstream publishes no per-prompt
+    # reference, so H100 is compared at the aggregate below).
+    print("\nper-prompt diagnostic — bf16 vs e4m3 (acc% / loss):")
     print(f"  {'prompt':<26} {'len':>5} | {'bf16':>16} | {'e4m3 emul':>16}")
     print("  " + "-" * 70)
     for nm, s, b, e in zip(names, seqs, base, emu):
@@ -147,10 +148,13 @@ def main() -> int:
     emu_loss, emu_acc = _mean(emu)
     ref = REFERENCE.get(args.model, {"loss": float("nan"), "acc": float("nan")})
     print("\n" + "=" * 62)
+    print(f"  AGGREGATE over {len(seqs)} prompts vs the H100 reference")
+    print("  " + "-" * 60)
     print(f"  reference (H100, FP8):  loss={ref['loss']:.4f}  acc={ref['acc']:.3f}%")
     print(f"  bf16 fallback:          loss={base_loss:.4f}  acc={base_acc:.2f}%")
     print(f"  e4m3 emulated:          loss={emu_loss:.4f}  acc={emu_acc:.2f}%")
-    print(f"  improvement:            Δloss={base_loss - emu_loss:+.4f}  Δacc={emu_acc - base_acc:+.2f}pp")
+    print(f"  bf16 -> emul:           Δloss={base_loss - emu_loss:+.4f}  Δacc={emu_acc - base_acc:+.2f}pp")
+    print(f"  emul vs H100:           Δloss={emu_loss - ref['loss']:+.4f}  Δacc={emu_acc - ref['acc']:+.2f}pp")
     print("=" * 62)
     if emu_acc > base_acc + 5:
         print("  emulation meaningfully improves accuracy.")
