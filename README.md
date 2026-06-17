@@ -3,6 +3,11 @@
 A macOS / Apple Silicon (MPS) port of [Evo 2](https://github.com/arcinstitute/evo2)
 — Arc Institute's DNA language model — for local inference on Mac.
 
+![evo2Mac web UI](docs/webui.png)
+
+> Web UI (`./webui.sh start`) with Forward / Score / Generate tabs, running the
+> 7B Evo 2 model locally on Apple Silicon via MPS.
+
 > This is a fork of [arcinstitute/evo2](https://github.com/arcinstitute/evo2)
 > with edits to the device handling, FP8 fallback, and config defaults so the
 > 1B and 7B Evo 2 checkpoints can run on Apple Silicon via MPS.

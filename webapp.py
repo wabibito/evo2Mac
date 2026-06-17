@@ -34,13 +34,23 @@ import gradio as gr
 import torch
 
 
+# Order matters: the dropdown shows these top-to-bottom, and the first entry is
+# the default. Lead with the bf16-native 7B-8k checkpoints (the ones that
+# reproduce upstream on Mac). evo2_1b_base is last and flagged FP8-degraded.
 MAC_FEASIBLE = {
-    "evo2_1b_base":         "~4 GB    (16 GB Mac ok)",
-    "evo2_7b_base":         "~14 GB   (32 GB+ Mac)",
-    "evo2_7b":              "~14 GB   (32 GB+ Mac, 1M ctx)",
-    "evo2_7b_262k":         "~14 GB   (32 GB+ Mac, 262K ctx)",
-    "evo2_7b_microviridae": "~14 GB   (32 GB+ Mac)",
+    "evo2_7b_base":         "~14 GB   bf16-native, recommended",
+    "evo2_7b":              "~14 GB   bf16-native (1M ctx)",
+    "evo2_7b_262k":         "~14 GB   bf16-native (262K ctx)",
+    "evo2_7b_microviridae": "~14 GB   bf16-native",
+    "evo2_1b_base":         "~4 GB    loads, but FP8-degraded — see note",
 }
+
+DEFAULT_MODEL = "evo2_7b_base"
+
+# Models whose upstream config has use_fp8_input_projections: True. They require
+# Transformer Engine (CUDA-only) for numerical accuracy; on Mac they load in
+# bf16 with FP8 disabled and produce near-random predictions. Not a port bug.
+FP8_DEGRADED = {"evo2_1b_base"}
 
 
 # --- Lazy model cache ---------------------------------------------------------
@@ -87,9 +97,18 @@ def action_load(model_name: str, progress: gr.Progress = gr.Progress()):
     except Exception as e:
         return (
             f"Failed to load {model_name}: {type(e).__name__}: {e}\n\n"
-            f"Tip: 7B models need 32GB+ unified memory."
+            f"Tip: 7B models need ~16GB+ unified memory; on an 18GB Mac keep "
+            f"sequences short (forward/generate over long prompts can OOM on MPS)."
+        )
+    warn = ""
+    if model_name in FP8_DEGRADED:
+        warn = (
+            "WARNING: this is an FP8-trained checkpoint running de-quantized in "
+            "bf16 (no Transformer Engine on Mac). Predictions are near-random — "
+            "fine for testing the pipeline, NOT for real results. Use evo2_7b_base.\n\n"
         )
     return (
+        f"{warn}"
         f"{model_name} loaded in {time.time() - t0:.1f}s on device {m.device}.\n"
         f"You can now run Forward / Score / Generate."
     )
@@ -193,16 +212,19 @@ with gr.Blocks(title="evo2Mac") as demo:
         f"# evo2Mac\n"
         f"Apple Silicon port of [Evo 2](https://github.com/arcinstitute/evo2). "
         f"{_device_info()}.\n"
-        f"\n> **Note:** This port currently shows numerical drift vs upstream's "
-        f"H100 reference values. Results below are real but may diverge from the "
-        f"published model. See repo README."
+        f"\n> **Use a 7B-8k checkpoint** (`evo2_7b_base`, the default) for real "
+        f"results — it runs in bf16 and matches upstream's H100 reference "
+        f"(loss ≈0.39 vs 0.35). `evo2_1b_base` loads and is handy for quick "
+        f"pipeline tests, but it is FP8-trained: without NVIDIA Transformer "
+        f"Engine (CUDA-only) it runs de-quantized and its predictions are "
+        f"**near-random** — not a port bug. See the repo README for details."
     )
 
     with gr.Row():
         model_dd = gr.Dropdown(
             label="Model",
             choices=[(f"{name}  —  {info}", name) for name, info in MAC_FEASIBLE.items()],
-            value="evo2_1b_base",
+            value=DEFAULT_MODEL,
         )
         load_btn = gr.Button("Load model", variant="primary")
     load_status = gr.Textbox(label="Status", interactive=False, lines=2)
@@ -251,11 +273,13 @@ with gr.Blocks(title="evo2Mac") as demo:
     gr.Markdown(
         "---\n"
         "**Tips**\n"
-        "- The first forward / generate per model loads the checkpoint "
-        "(~4 GB for 1B, ~14 GB for 7B). Click *Load model* first to do this up front.\n"
-        "- Generation is autoregressive; expect ~10 tok/s for 1B on M3 Pro and "
-        "slower for 7B.\n"
-        "- Sequences over ~1024 bp may saturate memory on smaller Macs."
+        "- Click *Load model* first — the first use loads the checkpoint "
+        "(~14 GB for 7B, ~4 GB for 1B), which can take a minute or two.\n"
+        "- `evo2_7b_base` is the default and the one to trust; the other 7B-8k "
+        "checkpoints are also bf16-native. `evo2_1b_base` is FP8-degraded.\n"
+        "- Generation is autoregressive; expect a few tok/s for the 7B on MPS.\n"
+        "- On a 16–18 GB Mac, keep sequences short — long prompts can exhaust "
+        "MPS memory during the forward pass."
     )
 
 
