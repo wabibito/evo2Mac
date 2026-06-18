@@ -12,7 +12,7 @@ Runs on the bf16-native 7B (recommended) or the FP8-emulated 1B. Because MPS
 scoring is slow, default to a manageable window and a sample of variants; pass
 --limit 0 to score them all.
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/brca1_vep.py --model evo2_7b_base --limit 200 --window 2048
 """
 

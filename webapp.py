@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-evo2Mac web UI — Gradio app for running Evo 2 inference on Apple Silicon.
+Evo2MPS web UI — Gradio app for running Evo 2 inference on Apple Silicon.
 
 Launch:
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python webapp.py
 
 Opens at http://localhost:7860.
@@ -168,7 +168,7 @@ def _fp8_banner(model_name: str) -> str:
     if model_name in FP8_EMULATED:
         return (
             "ℹ️ **FP8 e4m3 emulation (auto).** This checkpoint is FP8-trained; "
-            "Transformer Engine is CUDA-only, so evo2Mac emulates its per-tensor "
+            "Transformer Engine is CUDA-only, so Evo2MPS emulates its per-tensor "
             "e4m3 input projections (~75% forward accuracy / ~67% generation "
             "identity vs the H100 reference). Solid for exploration; the "
             "bf16-native `evo2_7b_base` is still the most accurate.\n"
@@ -800,11 +800,11 @@ def _model_choices():
     return out
 
 
-with gr.Blocks(title="evo2Mac", theme=THEME, css=CSS) as demo:
+with gr.Blocks(title="Evo2MPS", theme=THEME, css=CSS) as demo:
     with gr.Column(elem_id="evo2-header"):
         with gr.Row():
             gr.Markdown(
-                f"# 🧬 evo2Mac\n"
+                f"# 🧬 Evo2MPS\n"
                 f"Run **Evo 2** genome models locally on Apple Silicon — forward "
                 f"pass, scoring, variant effects, embeddings, batch, generation, "
                 f"**BRCA1 VEP** & the **gene-completion** benchmark. "
@@ -1021,9 +1021,9 @@ with gr.Blocks(title="evo2Mac", theme=THEME, css=CSS) as demo:
 
 
 def main() -> int:
-    host = os.environ.get("EVO2MAC_HOST", "127.0.0.1")
-    port = int(os.environ.get("EVO2MAC_PORT", "7860"))
-    share = os.environ.get("EVO2MAC_SHARE", "0") == "1"
+    host = os.environ.get("EVO2MPS_HOST", "127.0.0.1")
+    port = int(os.environ.get("EVO2MPS_PORT", "7860"))
+    share = os.environ.get("EVO2MPS_SHARE", "0") == "1"
     demo.launch(server_name=host, server_port=port, share=share, inbrowser=True)
     return 0
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Accuracy verification: run every evo2Mac capability against its reference data
+Accuracy verification: run every Evo2MPS capability against its reference data
 and report pass/fail in one table. Uses the bf16-native 7B (the validated model)
 by default, plus the FP8-emulated 1B for the emulation check.
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/verify_all.py            # quick (subsamples)
     python scripts/verify_all.py --full     # larger samples, slower
 """
@@ -80,7 +80,7 @@ def main() -> int:
 
     # 1) Forward accuracy vs H100 — the core port-correctness check (7B, bf16).
     print("[1/6] forward accuracy vs H100 (evo2_7b_base) ...")
-    os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+    os.environ["EVO2MPS_FP8_EMULATION"] = "0"
     m7 = Evo2("evo2_7b_base")
     loss, acc = fwd_loss_acc(m7, seqs[:n_seq], max_len)
     # Quick mode subsamples + truncates, so a tight aggregate tolerance doesn't
@@ -140,7 +140,7 @@ def main() -> int:
 
     # 6) FP8 emulation recovery (1B) vs H100 — the headline emulation result.
     print("[6/6] FP8 emulation recovery (evo2_1b_base) ...")
-    os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+    os.environ["EVO2MPS_FP8_EMULATION"] = "0"
     m1 = Evo2("evo2_1b_base")
     _, acc_bf = fwd_loss_acc(m1, seqs[:n_seq], max_len)
     ck = glob.glob(os.path.expanduser("~/.cache/huggingface/**/evo2_1b_base.pt"), recursive=True)[0]

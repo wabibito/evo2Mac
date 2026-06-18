@@ -105,9 +105,9 @@ class Evo2:
         # reference). The 7B checkpoints are bf16-robust — emulation there is a
         # measured no-op (~±0.05pp), so it is NOT applied automatically.
         #
-        # Default: ON for the 1B, OFF otherwise. EVO2MAC_FP8_EMULATION=0 forces
+        # Default: ON for the 1B, OFF otherwise. EVO2MPS_FP8_EMULATION=0 forces
         # it off (1B runs degraded); =1 forces it on for any model.
-        flag = os.environ.get("EVO2MAC_FP8_EMULATION")
+        flag = os.environ.get("EVO2MPS_FP8_EMULATION")
         helps_by_default = (model_name or "") in FP8_EMULATION_DEFAULT_MODELS
         want_emulation = flag == "1" or (flag != "0" and helps_by_default)
         if (

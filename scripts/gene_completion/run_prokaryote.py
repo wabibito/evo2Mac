@@ -13,7 +13,7 @@ region.
 Reference AA recovery (paper / maintainer's branch), prokaryote panel:
   Evo 2 1B 64.9 · 7B 78.7 · 20B 90.9 · 40B 92.0
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/gene_completion/run_prokaryote.py --model evo2_7b_base
 """
 

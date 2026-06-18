@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Reverse what install.sh did. Everything evo2Mac touches is contained in:
+# Reverse what install.sh did. Everything Evo2MPS touches is contained in:
 #
-#   1. The `evo2Mac` conda env (created by install.sh).
+#   1. The `Evo2MPS` conda env (created by install.sh).
 #   2. The .bak files inside the installed `vortex` package (created by
 #      patches/patch_vortex.py).
 #   3. The HuggingFace cache directory (~/.cache/huggingface/) — only the
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-ENV_NAME="${EVO2MAC_ENV:-evo2Mac}"
+ENV_NAME="${EVO2MPS_ENV:-Evo2MPS}"
 HF_CACHE_DEFAULT="$HOME/.cache/huggingface"
 HF_CACHE="${HF_HOME:-$HF_CACHE_DEFAULT}"
 
@@ -52,7 +52,7 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 
 # 1. Revert the runtime patches to vortex (only matters if you ever want to
-#    keep the env but uninstall just evo2Mac — usually you'd nuke the env).
+#    keep the env but uninstall just Evo2MPS — usually you'd nuke the env).
 if command -v conda >/dev/null 2>&1 && conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   if [[ -f "$REPO_ROOT/patches/patch_vortex.py" ]]; then
@@ -129,6 +129,6 @@ Uninstall complete. NOT touched:
   - Homebrew
   - miniforge itself
   - your other conda envs
-  - the cloned evo2Mac repo (delete with: rm -rf "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")
+  - the cloned Evo2MPS repo (delete with: rm -rf "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")
 ------------------------------------------------------------
 EOF

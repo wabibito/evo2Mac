@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compare evo2Mac (MPS) numerical output against upstream's published reference
+Compare Evo2MPS (MPS) numerical output against upstream's published reference
 values for arcinstitute/evo2 on CUDA.
 
 Upstream `evo2/test/test_evo2.py` runs a forward pass over a bundled
@@ -19,7 +19,7 @@ identical; the cross-entropy loss may drift by O(1e-3) to O(1e-2) but a
 correct port should NOT drift by more than that.
 
 Usage:
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/compare_to_upstream.py --model evo2_1b_base
     python scripts/compare_to_upstream.py --model evo2_7b_base   # 32GB+ Mac
     python scripts/compare_to_upstream.py --device cpu           # force CPU
@@ -341,7 +341,7 @@ def main() -> int:
     print(f"  upstream (H100, FP8, flash-attn):")
     print(f"    loss  = {ref['loss']:.4f}")
     print(f"    acc   = {ref['acc']:.3f}%")
-    print(f"  evo2Mac (this run):")
+    print(f"  Evo2MPS (this run):")
     print(f"    loss  = {mean_loss:.4f}    Δ = {loss_delta:.4f}")
     print(f"    acc   = {mean_acc_pct:.3f}%  Δ = {acc_delta:.3f} pp")
     print("=" * 62)

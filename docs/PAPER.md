@@ -3,7 +3,7 @@
 **Author:** wabibito
 **Affiliation:** independent
 **Date:** June 2026
-**Code:** [evo2Mac](https://github.com/wabibito/evo2Mac) · [FP8-MPS](https://github.com/wabibito/FP8-MPS) (FP8-on-MPS library)
+**Code:** [Evo2MPS](https://github.com/wabibito/Evo2MPS) · [FP8-MPS](https://github.com/wabibito/FP8-MPS) (FP8-on-MPS library)
 
 ---
 
@@ -14,7 +14,7 @@ released by the Arc Institute. The 1B, 20B, and 40B checkpoints are trained with
 8-bit floating point (FP8, e4m3) via NVIDIA's Transformer Engine (TE) and are
 documented to require an NVIDIA Hopper GPU for numerically correct inference;
 only the 7B-8k checkpoints run in bf16 on commodity hardware. We present
-**evo2Mac**, a port of Evo 2 to Apple Silicon (the PyTorch Metal/MPS backend),
+**Evo2MPS**, a port of Evo 2 to Apple Silicon (the PyTorch Metal/MPS backend),
 and study how far the FP8 checkpoints can be recovered on hardware with no FP8
 support. We make four contributions. (1) A **bit-exact** emulation of e4m3
 quantization in pure PyTorch tensor ops that runs on MPS, where PyTorch's native
@@ -120,7 +120,7 @@ y = ( round_e4m3(x · act_scale) @ round_e4m3(W · weight_scale)ᵀ ) / (act_sca
 ```
 
 A model-walking pass swaps each FP8 linear for an `Fp8EmulatedLinear` carrying
-that layer's scales. It is opt-in via `EVO2MAC_FP8_EMULATION` and default-on for
+that layer's scales. It is opt-in via `EVO2MPS_FP8_EMULATION` and default-on for
 `evo2_1b_base`.
 
 ### 3.3 Reproducibility harness
@@ -253,7 +253,7 @@ succeed, for reproducibility and to document the full design space explored.
 - **fp32 pre-scaling.** Computing `x * act_scale` in fp32 rather than bf16 improves
   agreement with generic native FP8 (and is correct for the FP8-MPS library), but
   it regressed the 1B from 74.5% to 39%: Evo 2's stored scales are tuned to the
-  bf16-scaling path that `vortex` uses at inference. Outcome: reverted in evo2Mac,
+  bf16-scaling path that `vortex` uses at inference. Outcome: reverted in Evo2MPS,
   retained in FP8-MPS. The discrepancy illustrates that a more numerically generic
   formulation is not necessarily better for a specific model.
 - **Activation-clamp hypothesis.** We hypothesized that unclamped activation
@@ -389,6 +389,6 @@ general FP8-on-Apple-Silicon library validated on a real PTQ FP8 model.
 
 *Reproducibility:* all results regenerate via the scripts in `scripts/`
 (`validate_fp8_emulation.py`, `test_generation.py`, `compare_all.py`,
-`diff_cpu_mps.py`) on an Apple-Silicon Mac with the `evo2Mac` conda environment.
+`diff_cpu_mps.py`) on an Apple-Silicon Mac with the `Evo2MPS` conda environment.
 See the [FP8-MPS methods note](https://github.com/wabibito/FP8-MPS/blob/main/docs/METHODS.md)
 for the general FP8-on-MPS quantization details.

@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 
-PATCH_MARK = "# evo2Mac patch"
+PATCH_MARK = "# Evo2MPS patch"
 
 
 def vortex_root() -> Path:
@@ -102,7 +102,7 @@ def patch_engine(root: Path) -> int:
         (
             r'with torch\.autocast\(\s*"cuda"\s*\):',
             (
-                'with torch.autocast(  # evo2Mac patch: autocast\n'
+                'with torch.autocast(  # Evo2MPS patch: autocast\n'
                 '            "cuda" if torch.cuda.is_available()\n'
                 '            else ("mps" if torch.backends.mps.is_available() else "cpu"),\n'
                 '            dtype=torch.bfloat16,  # MPS defaults to fp16; Hyena FFT needs bf16 range\n'
@@ -113,7 +113,7 @@ def patch_engine(root: Path) -> int:
         (
             r'state_S\s*=\s*torch\.fft\.fft\(\s*state_s\s*,\s*n=fft_size\s*\)\.repeat\(\s*bs\s*,\s*1\s*,\s*1\s*,\s*1\s*\)',
             (
-                "state_S = torch.fft.fft(state_s, n=fft_size)  # evo2Mac patch: fft_repeat\n"
+                "state_S = torch.fft.fft(state_s, n=fft_size)  # Evo2MPS patch: fft_repeat\n"
                 "        state_S = state_S.unsqueeze(0).expand(bs, -1, -1, -1)"
             ),
             "fft_repeat",
@@ -166,7 +166,7 @@ def patch_engine_empty_cache(root: Path) -> int:
         (
             r"torch\.cuda\.empty_cache\(\)",
             (
-                "(torch.cuda.empty_cache() if torch.cuda.is_available()  # evo2Mac patch: empty_cache\n"
+                "(torch.cuda.empty_cache() if torch.cuda.is_available()  # Evo2MPS patch: empty_cache\n"
                 "                else (torch.mps.empty_cache() if torch.backends.mps.is_available() else None))"
             ),
             "empty_cache",
@@ -176,7 +176,7 @@ def patch_engine_empty_cache(root: Path) -> int:
 
 
 _ROTARY_FALLBACK_SHIM = '''
-# --- evo2Mac patch: rotary_torch_fallback ----------------------------------
+# --- Evo2MPS patch: rotary_torch_fallback ----------------------------------
 # Replace the triton-backed apply_rotary with a torch fallback on non-CUDA.
 # All call sites in this module (ApplyRotaryEmb, ApplyRotaryEmbQKV_, etc.)
 # continue to use the same symbol name, so they pick up the fallback when
@@ -234,7 +234,7 @@ def _apply_rotary_dispatch(x, *args, **kwargs):
 # Rebind the module-level symbol so every call site in this file routes
 # through the dispatcher.
 apply_rotary = _apply_rotary_dispatch
-# --- end evo2Mac patch -----------------------------------------------------
+# --- end Evo2MPS patch -----------------------------------------------------
 '''
 
 
@@ -263,7 +263,7 @@ def patch_rotary_qkv_force_view_path(root: Path) -> int:
             r"if cos_k is None and sin_k is None and qkv\.is_contiguous\(\):",
             (
                 "if cos_k is None and sin_k is None and qkv.is_contiguous() "
-                "and qkv.is_cuda:  # evo2Mac patch: qkv_view_path"
+                "and qkv.is_cuda:  # Evo2MPS patch: qkv_view_path"
             ),
             "qkv_view_path",
         ),
@@ -298,7 +298,7 @@ def patch_rotary_torch_fallback(root: Path) -> int:
     text, n_import = re.subn(
         r"^from\s+vortex\.ops\.embedding\.rotary\s+import\s+apply_rotary\s*$",
         (
-            "try:  # evo2Mac patch: rotary_torch_fallback\n"
+            "try:  # Evo2MPS patch: rotary_torch_fallback\n"
             "    from vortex.ops.embedding.rotary import apply_rotary\n"
             "except (ImportError, ModuleNotFoundError):\n"
             "    apply_rotary = None"
@@ -345,7 +345,7 @@ def patch_attn_interface_optional(root: Path) -> int:
         (
             r"^import\s+flash_attn_2_cuda\s+as\s+flash_attn_gpu\s*$",
             (
-                "try:  # evo2Mac patch: optional_flash_attn\n"
+                "try:  # Evo2MPS patch: optional_flash_attn\n"
                 "    import flash_attn_2_cuda as flash_attn_gpu\n"
                 "except ImportError:\n"
                 "    flash_attn_gpu = None"
@@ -391,7 +391,7 @@ def patch_cuda_device_contexts(root: Path) -> int:
             # Insert after the first `import torch` (vortex files all import torch early).
             text, _ = re.subn(
                 r"(import torch[^\n]*\n)",
-                r"\1import contextlib  # evo2Mac patch: contextlib\n",
+                r"\1import contextlib  # Evo2MPS patch: contextlib\n",
                 text,
                 count=1,
             )

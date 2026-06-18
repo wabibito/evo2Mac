@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# evo2Mac Web UI control script.
+# Evo2MPS Web UI control script.
 #
 #   ./webui.sh start      # launch the Gradio app in the background
 #   ./webui.sh stop       # stop it
@@ -12,22 +12,22 @@
 # server is actually serving before returning, and installs gradio into the
 # conda env if it's missing. Override any of these via env vars:
 #
-#   EVO2MAC_ENV   conda env name      (default: evo2Mac)
-#   EVO2MAC_HOST  bind address        (default: 127.0.0.1)
-#   EVO2MAC_PORT  port                (default: 7860)
-#   EVO2MAC_SHARE 1 = public share    (default: 0)
+#   EVO2MPS_ENV   conda env name      (default: Evo2MPS)
+#   EVO2MPS_HOST  bind address        (default: 127.0.0.1)
+#   EVO2MPS_PORT  port                (default: 7860)
+#   EVO2MPS_SHARE 1 = public share    (default: 0)
 #
 # Examples:
-#   EVO2MAC_PORT=8000 ./webui.sh start
+#   EVO2MPS_PORT=8000 ./webui.sh start
 #   ./webui.sh restart
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_NAME="${EVO2MAC_ENV:-evo2Mac}"
-HOST="${EVO2MAC_HOST:-127.0.0.1}"
-PORT="${EVO2MAC_PORT:-7860}"
-SHARE="${EVO2MAC_SHARE:-0}"
+ENV_NAME="${EVO2MPS_ENV:-Evo2MPS}"
+HOST="${EVO2MPS_HOST:-127.0.0.1}"
+PORT="${EVO2MPS_PORT:-7860}"
+SHARE="${EVO2MPS_SHARE:-0}"
 
 PID_FILE="$REPO_ROOT/.webui.pid"
 LOG_FILE="$REPO_ROOT/webui.log"
@@ -95,7 +95,7 @@ cmd_start() {
   fi
   # Stale PID file or someone else on the port?
   if port_open; then
-    err "port $PORT is already in use (not by us). Set EVO2MAC_PORT or free it."
+    err "port $PORT is already in use (not by us). Set EVO2MPS_PORT or free it."
     exit 1
   fi
 
@@ -103,7 +103,7 @@ cmd_start() {
 
   log "starting web UI on $URL (env: $ENV_NAME)..."
   # inbrowser is handled by webapp.py; we just background it and capture logs.
-  EVO2MAC_HOST="$HOST" EVO2MAC_PORT="$PORT" EVO2MAC_SHARE="$SHARE" \
+  EVO2MPS_HOST="$HOST" EVO2MPS_PORT="$PORT" EVO2MPS_SHARE="$SHARE" \
     nohup "$CONDA" run -n "$ENV_NAME" python -u "$REPO_ROOT/webapp.py" \
     >"$LOG_FILE" 2>&1 &
   echo $! >"$PID_FILE"
@@ -176,7 +176,7 @@ cmd_logs() {
 
 usage() {
   cat <<EOF
-evo2Mac Web UI control
+Evo2MPS Web UI control
 
 Usage: ./webui.sh <command>
 
@@ -186,7 +186,7 @@ Usage: ./webui.sh <command>
   status    show whether it's running and the URL
   logs      tail the server log
 
-Env overrides: EVO2MAC_ENV, EVO2MAC_HOST, EVO2MAC_PORT, EVO2MAC_SHARE
+Env overrides: EVO2MPS_ENV, EVO2MPS_HOST, EVO2MPS_PORT, EVO2MPS_SHARE
 Current:       env=$ENV_NAME host=$HOST port=$PORT share=$SHARE
 URL:           $URL
 EOF

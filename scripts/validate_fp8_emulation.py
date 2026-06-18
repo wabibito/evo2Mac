@@ -8,7 +8,7 @@ emulation to the input projections, and reports the delta against the H100
 reference. The hypothesis: emulation moves accuracy from the ~30% bf16-fallback
 floor toward the ~80% reference.
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/validate_fp8_emulation.py [--max-len 2048] [--max-seqs N]
 """
 
@@ -104,7 +104,7 @@ def main() -> int:
     # Load with emulation forced OFF so the baseline is the true bf16 fallback
     # (the Evo2 loader now applies emulation by default for the 1B). We then
     # apply it explicitly below to measure the before/after delta.
-    os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+    os.environ["EVO2MPS_FP8_EMULATION"] = "0"
     from evo2 import Evo2
     from evo2.fp8_emulation import apply_fp8_emulation
 

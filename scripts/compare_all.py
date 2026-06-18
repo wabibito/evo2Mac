@@ -7,7 +7,7 @@ Forward-pass next-token loss/accuracy over upstream's bundled prompts. For
 each model it always reports the bf16 (no-FP8) numbers; for FP8-trained
 checkpoints it additionally applies the e4m3 emulation and reports that row.
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/compare_all.py                       # all cached models
     python scripts/compare_all.py --models evo2_7b_base evo2_1b_base
     python scripts/compare_all.py --max-len 2048        # cap context (memory)
@@ -97,7 +97,7 @@ def main() -> int:
 
     # Load each model with auto-emulation OFF so the bf16 row is the true
     # fallback; we apply emulation explicitly for the emulated row.
-    os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+    os.environ["EVO2MPS_FP8_EMULATION"] = "0"
     from evo2 import Evo2
     from evo2.fp8_emulation import apply_fp8_emulation
 

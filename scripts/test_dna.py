@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-End-to-end DNA sequence test for evo2Mac.
+End-to-end DNA sequence test for Evo2MPS.
 
 Loads a checkpoint on MPS (or CPU/CUDA), then exercises:
 
@@ -13,7 +13,7 @@ Loads a checkpoint on MPS (or CPU/CUDA), then exercises:
 
 Run after ./scripts/setup.sh:
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/test_dna.py                              # evo2_1b_base
     python scripts/test_dna.py --model evo2_7b_base         # 32GB+ Mac
     python scripts/test_dna.py --skip-generate              # skip step 6

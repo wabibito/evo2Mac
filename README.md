@@ -1,9 +1,9 @@
-# evo2Mac
+# Evo2MPS
 
 A macOS / Apple Silicon (MPS) port of [Evo 2](https://github.com/arcinstitute/evo2)
 — Arc Institute's DNA language model — for local inference on Mac.
 
-![evo2Mac web UI](docs/webui.png)
+![Evo2MPS web UI](docs/webui.png)
 
 > Web UI (`./webui.sh start`) with Forward / Score / Variant / Embeddings /
 > Batch / Generate tabs, running the 7B Evo 2 model locally on Apple Silicon
@@ -77,7 +77,7 @@ Notes:
 - **`evo2_1b_base` runs with FP8 e4m3 emulation by default** on Mac — recovering
   it from near-random (bf16) to ~75% forward accuracy / ~74% generation identity
   vs the H100 reference. Still a step below the bf16-native 7B; use a 7B-8k model
-  when you want the most accurate results. Opt out with `EVO2MAC_FP8_EMULATION=0`.
+  when you want the most accurate results. Opt out with `EVO2MPS_FP8_EMULATION=0`.
 - **20B/40B are code-enabled and load** (configs are Mac-patched to drop the
   Transformer Engine / Hopper / flash-attn dependencies; 20B loads and runs on a
   64 GB Mac, 40B needs ≥96 GB). **But they are not yet numerically usable on Mac:**
@@ -103,17 +103,17 @@ Notes:
 Prerequisites: Apple Silicon Mac, macOS 14+, [Homebrew](https://brew.sh).
 
 ```bash
-git clone https://github.com/wabi-media/evo2Mac.git
-cd evo2Mac
+git clone https://github.com/wabi-media/Evo2MPS.git
+cd Evo2MPS
 ./install.sh                                          # one-shot setup
-conda activate evo2Mac
+conda activate Evo2MPS
 
 # Web UI (recommended) — managed start/stop, opens http://localhost:7860:
 ./webui.sh start                                      # launch in the background
 ./webui.sh status                                     # is it up? what URL?
 ./webui.sh logs                                       # tail the server log
 ./webui.sh stop                                       # shut it down
-# (override the port: EVO2MAC_PORT=8000 ./webui.sh start)
+# (override the port: EVO2MPS_PORT=8000 ./webui.sh start)
 
 # Or CLI (use a 7B-8k model — it's the bf16-native, validated one):
 python scripts/smoke_test.py --model evo2_7b_base          # one forward pass
@@ -132,7 +132,7 @@ python scripts/compare_to_upstream.py --max-len 2048
 
 `install.sh` will:
 1. Install miniforge via Homebrew (skip if present).
-2. Create a Python 3.11 conda env named `evo2Mac`.
+2. Create a Python 3.11 conda env named `Evo2MPS`.
 3. Install PyTorch with MPS support.
 4. Install `vtx` (the StripedHyena 2 runtime; imported as `vortex`).
 5. Install this package in editable mode (`pip install -e . --no-deps`).
@@ -162,8 +162,8 @@ model selector (lazy-loaded and cached) drives six tabs:
 
 All tabs validate input as ACGT-only, run on MPS (or CPU fallback), and surface
 a banner when an FP8-degraded checkpoint (`evo2_1b_base`) is selected. Override
-the bind host/port with `EVO2MAC_HOST` / `EVO2MAC_PORT`, or expose a public
-Gradio share link with `EVO2MAC_SHARE=1`.
+the bind host/port with `EVO2MPS_HOST` / `EVO2MPS_PORT`, or expose a public
+Gradio share link with `EVO2MPS_SHARE=1`.
 
 To regenerate the screenshot after UI changes: `./webui.sh start`, open
 http://localhost:7860 in a browser, and save a capture to `docs/webui.png`.
@@ -193,7 +193,7 @@ On the M3 Pro with `evo2_1b_base`, the comparison reports:
 
 ```
 upstream (H100, FP8, flash-attn):  loss=0.502  acc=79.6%
-evo2Mac (this run):                 loss=1.35   acc=34.5%
+Evo2MPS (this run):                 loss=1.35   acc=34.5%
 ```
 
 This is **outside tolerance** — the port loads cleanly, all six end-to-end
@@ -268,7 +268,7 @@ And it passes. On a 64 GB Mac, `evo2_7b_base` over the first 4 prompts at
 
 ```
 upstream (H100, FP8, flash-attn):  loss=0.3521  acc=85.921%
-evo2Mac (MPS, bf16):                loss=0.3521  acc=85.979%   (Δloss +0.0001, Δacc +0.058pp)
+Evo2MPS (MPS, bf16):                loss=0.3521  acc=85.979%   (Δloss +0.0001, Δacc +0.058pp)
 -> loss within ±0.05: OK; accuracy within ±1.5pp: OK; port matches upstream within tolerance
 ```
 
@@ -305,11 +305,11 @@ bit-exact against `torch.float8_e4m3fn` (which casts on CPU but not MPS).
 It is **on by default for `evo2_1b_base`** (the one checkpoint where it
 measurably helps); the bf16-native 7B checkpoints are bf16-robust — emulation
 there is a verified ±0.05 pp no-op — so it is *not* applied to them. Opt out
-with `EVO2MAC_FP8_EMULATION=0`; force on for any model with `=1`.
+with `EVO2MPS_FP8_EMULATION=0`; force on for any model with `=1`.
 
 ```bash
 python scripts/test_dna.py --model evo2_1b_base       # emulation auto-applied
-EVO2MAC_FP8_EMULATION=0 python scripts/test_dna.py --model evo2_1b_base  # bf16
+EVO2MPS_FP8_EMULATION=0 python scripts/test_dna.py --model evo2_1b_base  # bf16
 python scripts/validate_fp8_emulation.py              # measures before/after
 python scripts/test_generation.py --model evo2_1b_base  # greedy-gen vs H100 ref
 ```
@@ -376,7 +376,7 @@ print(out.sequences[0])
 
 ```bash
 git remote -v
-# origin    https://github.com/wabi-media/evo2Mac.git    (your fork)
+# origin    https://github.com/wabi-media/Evo2MPS.git    (your fork)
 # upstream  https://github.com/arcinstitute/evo2.git     (Arc Institute)
 
 git fetch upstream
@@ -385,7 +385,7 @@ git merge upstream/main         # or rebase, your call
 
 When upstream lands changes to `evo2/models.py`, `evo2/scoring.py`, or the
 configs, you may have to redo the Mac edits — they're small and well-marked
-with `# evo2Mac:` comments.
+with `# Evo2MPS:` comments.
 
 ## What this port does *not* do
 

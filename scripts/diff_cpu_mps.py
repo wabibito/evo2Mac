@@ -28,7 +28,7 @@ import torch
 CAPTURE = r"""
 import os, sys, warnings, re
 warnings.filterwarnings("ignore")
-os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+os.environ["EVO2MPS_FP8_EMULATION"] = "0"
 os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 import torch
 from evo2 import Evo2

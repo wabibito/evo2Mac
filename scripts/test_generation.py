@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Greedy-generation identity test for evo2Mac, vs upstream's H100 reference.
+Greedy-generation identity test for Evo2MPS, vs upstream's H100 reference.
 
 This is the Mac/MPS port of upstream's `evo2/test/test_evo2_generation.py`
 (which is hardcoded to `cuda:0`). It prompts each bundled sequence with its
@@ -11,13 +11,13 @@ than the teacher-forced forward pass in compare_to_upstream.py.
 Upstream H100 references (direct comparison, no alignment):
     evo2_7b: 89.25%   evo2_40b: 91.15%   evo2_20b: 93.4%   evo2_1b_base: 68.0%
 
-For evo2_1b_base, run with EVO2MAC_FP8_EMULATION=1 to test the FP8 e4m3
+For evo2_1b_base, run with EVO2MPS_FP8_EMULATION=1 to test the FP8 e4m3
 emulation against the 68.0% reference (a second, independent check beyond the
 forward-pass accuracy in scripts/validate_fp8_emulation.py).
 
-    conda activate evo2Mac
+    conda activate Evo2MPS
     python scripts/test_generation.py --model evo2_7b              # vs 89.25%
-    EVO2MAC_FP8_EMULATION=1 python scripts/test_generation.py --model evo2_1b_base
+    EVO2MPS_FP8_EMULATION=1 python scripts/test_generation.py --model evo2_1b_base
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ def main() -> int:
 
     if args.compare_fp8:
         # Load with emulation OFF for the bf16 pass, then apply it for the second.
-        os.environ["EVO2MAC_FP8_EMULATION"] = "0"
+        os.environ["EVO2MPS_FP8_EMULATION"] = "0"
         from evo2.fp8_emulation import apply_fp8_emulation
         t0 = time.time()
         model = Evo2(args.model)
@@ -154,7 +154,7 @@ def main() -> int:
                   f"emul Δ {emu_mean - ref:+.2f}pp")
         return 0
 
-    fp8 = os.environ.get("EVO2MAC_FP8_EMULATION") == "1"
+    fp8 = os.environ.get("EVO2MPS_FP8_EMULATION") == "1"
     print(f"model: {args.model}   FP8 emulation: {'ON' if fp8 else 'off'}")
     t0 = time.time()
     model = Evo2(args.model)

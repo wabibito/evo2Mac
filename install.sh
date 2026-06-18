@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Set up evo2Mac on Apple Silicon.
+# Set up Evo2MPS on Apple Silicon.
 #
 # What this does:
 #   1. Installs miniforge via Homebrew if missing.
-#   2. Creates the `evo2Mac` conda env with Python 3.11.
+#   2. Creates the `Evo2MPS` conda env with Python 3.11.
 #   3. Installs PyTorch (CPU/MPS wheels).
 #   4. Installs `vtx` (the StripedHyena 2 runtime).
 #   5. Installs this repo (`evo2` package) in editable mode without deps.
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_NAME="${EVO2MAC_ENV:-evo2Mac}"
+ENV_NAME="${EVO2MPS_ENV:-Evo2MPS}"
 PY_VERSION="3.11"
 
 log() { printf "\033[1;34m[setup]\033[0m %s\n" "$*"; }
@@ -87,7 +87,7 @@ fi
 # 5. Editable install of our evo2 package without deps
 #    (We intentionally avoid `pip install evo2` from PyPI — we want our patched
 #    source in evo2/, not upstream.)
-log "installing local evo2Mac package (editable, no deps)..."
+log "installing local Evo2MPS package (editable, no deps)..."
 pip install --no-deps -e "$REPO_ROOT"
 pip install biopython huggingface_hub pyyaml "einops>=0.8" packaging rich tqdm numpy
 pip install pandas openpyxl   # BRCA1 VEP / batch scoring
@@ -100,7 +100,7 @@ python "$REPO_ROOT/patches/patch_vortex.py"
 cat <<EOF
 
 ------------------------------------------------------------
-evo2Mac setup complete.
+Evo2MPS setup complete.
 
 Launch the web UI (recommended) — no need to activate the env first:
 
