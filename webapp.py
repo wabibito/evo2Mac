@@ -658,122 +658,111 @@ CSS = """
   --accent: #00c9b1;
   --accent-bright: #1ee3cf;
   --accent-text: #042f2a;
-  --glass: rgba(255,255,255,0.55);
-  --glass-strong: rgba(255,255,255,0.72);
-  --glass-border: rgba(255,255,255,0.65);
-  --glass-shadow: 0 10px 40px rgba(15,23,42,0.16), inset 0 1px 0 rgba(255,255,255,0.7);
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --line: rgba(15,23,42,0.10);
   --ink: #1d2530;
+  --muted: #6b7686;
+  --field: #f0f3f7;
 }
 body.dark {
-  --glass: rgba(30,34,44,0.52);
-  --glass-strong: rgba(38,43,54,0.7);
-  --glass-border: rgba(255,255,255,0.12);
-  --glass-shadow: 0 10px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
+  --bg: #0e1117;
+  --surface: #161a22;
+  --line: rgba(255,255,255,0.08);
   --ink: #e9edf4;
+  --muted: #9aa4b2;
+  --field: #1c212b;
 }
 
-/* Ambient macOS-style wallpaper behind the frosted glass */
-.gradio-container, body.dark .gradio-container {
+/* Calm, flat background — one subtle accent glow, no busy wallpaper. */
+.gradio-container {
   background:
-    radial-gradient(1200px 700px at 12% -10%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 60%),
-    radial-gradient(1000px 800px at 100% 0%, rgba(120,90,255,0.30), transparent 55%),
-    radial-gradient(900px 900px at 50% 120%, color-mix(in srgb, var(--accent-bright) 28%, transparent), transparent 60%),
-    linear-gradient(160deg, #eef2f7, #e7ecf3) !important;
-  background-attachment: fixed !important;
-}
-body.dark .gradio-container {
-  background:
-    radial-gradient(1200px 700px at 12% -10%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 60%),
-    radial-gradient(1000px 800px at 100% 0%, rgba(120,90,255,0.28), transparent 55%),
-    radial-gradient(900px 900px at 50% 120%, color-mix(in srgb, var(--accent-bright) 18%, transparent), transparent 60%),
-    linear-gradient(160deg, #0d1016, #11151d) !important;
+    radial-gradient(900px 480px at 85% -8%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    var(--bg) !important;
+  color: var(--ink) !important;
+  max-width: 1100px !important; margin: 0 auto !important;
 }
 
-/* Frosted-glass panels — the vibrancy material */
-.gr-group, .gr-box, .gr-panel, .block.gr-box, .form,
-.gradio-container .block:not(.gr-accordion) {
-  background: var(--glass) !important;
-  -webkit-backdrop-filter: saturate(180%) blur(22px);
-  backdrop-filter: saturate(180%) blur(22px);
-  border: 1px solid var(--glass-border) !important;
-  border-radius: 16px !important;
-  box-shadow: var(--glass-shadow) !important;
-  color: var(--ink);
+/* FLATTEN everything: no per-block boxes, borders, or shadows.
+   Content sits directly on the background so the layout breathes. */
+.gradio-container .block, .gr-group, .gr-box, .gr-panel, .form, .gr-form {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
-/* Don't double-frost nested wrappers (avoid muddy stacking) */
-.gradio-container .block .block { box-shadow: none !important; background: transparent !important;
-  border: none !important; backdrop-filter: none !important; }
+/* A little vertical rhythm between rows instead of boxes. */
+.gradio-container .block { margin: 0 !important; }
+.gap, .gradio-container .form > * { gap: 10px !important; }
 
-/* Header: a prominent vibrancy card */
+/* The ONE card: the header. Clean surface, not a giant empty glass slab. */
 #evo2-header {
-  background: var(--glass-strong) !important;
-  -webkit-backdrop-filter: saturate(200%) blur(30px);
-  backdrop-filter: saturate(200%) blur(30px);
-  border: 1px solid var(--glass-border);
-  border-radius: 22px; padding: 22px 26px; margin-bottom: 14px;
-  box-shadow: var(--glass-shadow);
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 16px; padding: 18px 22px; margin-bottom: 18px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04);
 }
 #evo2-header h1, #evo2-header h1 * {
-  margin: 0 0 4px 0; font-weight: 800; letter-spacing: -0.6px; font-size: 2rem;
-  color: var(--accent-bright) !important;   /* fallback so it never vanishes */
-  background-image: linear-gradient(92deg, var(--accent), var(--accent-bright));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+  margin: 0 0 2px 0; font-weight: 750; letter-spacing: -0.5px; font-size: 1.55rem;
+  color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important;
+}
+#evo2-header p { color: var(--muted) !important; margin: 0; font-size: 0.92rem; }
+
+/* Tabs: a clean underline bar, not a boxed segmented control. */
+.tab-nav, .tabs > .tab-nav {
+  background: transparent !important; border: none !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-radius: 0 !important; padding: 0 !important; gap: 2px; margin-bottom: 16px;
+}
+.tab-nav button, .tabs button[role="tab"] {
+  border: none !important; background: transparent !important;
+  padding: 10px 14px !important; font-weight: 600; color: var(--muted) !important;
+  border-bottom: 2px solid transparent !important; border-radius: 8px 8px 0 0 !important;
+  transition: color .15s ease, border-color .15s ease;
+}
+.tab-nav button.selected, .tabs button[aria-selected="true"] {
+  color: var(--accent) !important; border-bottom: 2px solid var(--accent) !important;
+  background: transparent !important;
+}
+.tab-nav button:not(.selected):hover { color: var(--ink) !important; }
+
+/* Labels: small, muted, uppercase — not bright colored chips. */
+.gradio-container span[data-testid="block-info"], label > span:first-child {
+  color: var(--muted) !important; font-weight: 600 !important;
+  font-size: 0.78rem !important; letter-spacing: 0.02em;
 }
 
-/* Tabs as a floating segmented control */
-.tab-nav, div.tab-nav, .tabs > .tab-nav {
-  background: var(--glass) !important;
-  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border) !important; border-bottom: 1px solid var(--glass-border) !important;
-  border-radius: 14px !important; padding: 5px !important; gap: 3px; margin-bottom: 12px;
-  box-shadow: var(--glass-shadow);
+/* Inputs: soft filled fields with a clean focus ring. */
+input, textarea, select, .gr-input, .gr-text-input,
+.gradio-container input[type="text"], .gradio-container textarea {
+  background: var(--field) !important; border: 1px solid var(--line) !important;
+  border-radius: 10px !important; color: var(--ink) !important;
 }
-.tab-nav button, .tab-nav button[role="tab"], .tabs button[role="tab"] {
-  border: none !important; border-bottom: none !important; border-radius: 10px !important;
-  padding: 8px 16px !important; font-weight: 600; color: var(--ink) !important;
-  background: transparent !important; transition: all .18s ease; }
-.tab-nav button.selected, .tab-nav button[aria-selected="true"],
-.tabs button[aria-selected="true"] {
-  background: linear-gradient(180deg, var(--accent), var(--accent-bright)) !important;
-  color: var(--accent-text) !important; border-bottom: none !important;
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent) !important;
+input:focus, textarea:focus, select:focus {
+  outline: none !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent) !important;
 }
-.tab-nav button:not(.selected):hover { background: rgba(127,127,127,0.14) !important; }
 
-/* Primary buttons — glossy accent pill */
+/* Primary buttons: solid accent, modern flat pill. */
 button.primary, .primary > button {
-  background: linear-gradient(180deg, var(--accent-bright), var(--accent)) !important;
-  border: none !important; color: var(--accent-text) !important; font-weight: 700 !important;
-  border-radius: 12px !important;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 40%, transparent),
-              inset 0 1px 0 rgba(255,255,255,0.5) !important;
-  transition: transform .12s ease, filter .12s ease;
+  background: var(--accent) !important; border: none !important;
+  color: var(--accent-text) !important; font-weight: 650 !important;
+  border-radius: 10px !important; box-shadow: none !important;
+  transition: filter .12s ease;
 }
-button.primary:hover, .primary > button:hover { filter: brightness(1.06); transform: translateY(-1px); }
-button.primary:active, .primary > button:active { transform: translateY(0); }
-
-/* Secondary buttons get a subtle glass look too */
+button.primary:hover, .primary > button:hover { filter: brightness(1.05); }
 button.secondary, .secondary > button {
-  background: var(--glass-strong) !important; border: 1px solid var(--glass-border) !important;
-  border-radius: 12px !important; color: var(--ink) !important;
+  background: var(--surface) !important; border: 1px solid var(--line) !important;
+  border-radius: 10px !important; color: var(--ink) !important;
 }
 
-/* Inputs: translucent, rounded */
-input, textarea, .gr-input, .gr-text-input, select, .wrap.svelte-1ipelgc {
-  background: rgba(255,255,255,0.45) !important; border: 1px solid var(--glass-border) !important;
-  border-radius: 11px !important; color: var(--ink) !important;
+/* Results / tables: a light framed surface so output reads as a panel. */
+.gradio-container textarea[readonly], .gr-dataframe, table {
+  background: var(--surface) !important; border-radius: 10px !important;
 }
-body.dark input, body.dark textarea, body.dark select { background: rgba(255,255,255,0.06) !important; }
-input:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent) !important; }
 
-/* Labels + accents */
-.gradio-container span[data-testid="block-info"], label > span { color: var(--accent) !important; font-weight: 600; }
-.progress-bar, .meta-text + div .progress-bar {
-  background: linear-gradient(90deg, var(--accent), var(--accent-bright)) !important; }
-
-/* Dataframe / tables sit on glass cleanly */
-table { background: transparent !important; }
+.progress-bar { background: var(--accent) !important; }
 """
 
 # JS: apply an accent (by name) and toggle dark/light by flipping Gradio's
