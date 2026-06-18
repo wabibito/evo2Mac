@@ -50,3 +50,9 @@ local_config.yml
 # webui control script runtime
 .webui.pid
 webui.log
+
+# Claude / assistant config — never commit
+CLAUDE.md
+.claude/
+.claude.md
+*.claude.md
